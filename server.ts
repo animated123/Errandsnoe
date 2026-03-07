@@ -80,7 +80,8 @@ export async function createServer() {
       `TALKSASA_SENDER_ID=${process.env.TALKSASA_SENDER_ID || ''}`,
       `RESEND_API_KEY=${process.env.RESEND_API_KEY || ''}`,
       `RESEND_FROM=${process.env.RESEND_FROM || ''}`,
-      `GOOGLE_MAPS_API_KEY=${process.env.GOOGLE_MAPS_API_KEY || ''}`
+      `GOOGLE_MAPS_API_KEY=${process.env.GOOGLE_MAPS_API_KEY || ''}`,
+      `GEMINI_API_KEY=${process.env.GEMINI_API_KEY || process.env.API_KEY || ''}`
     ].join('\n');
 
     res.setHeader('Content-Type', 'text/plain');
@@ -144,10 +145,8 @@ export async function createServer() {
         }));
       }
 
-      // Send Email via Resend - TEMPORARILY DISABLED
+      // Send Email via Resend
       if (type === 'email' || type === 'both') {
-        console.log(`[MAIL DISABLED] Verification code for ${email}: ${emailCode}`);
-        /*
         promises.push(fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -170,7 +169,6 @@ export async function createServer() {
             `
           })
         }));
-        */
       }
 
       await Promise.all(promises);
@@ -264,8 +262,8 @@ export async function createServer() {
     app.use(express.static(distPath));
     
     // FIX: Express 5 requires a named parameter for wildcards
-    // Using {*path} to capture all routes for SPA navigation
-    app.get('/*', (req, res, next) => {
+    // Using /:path* to capture all routes for SPA navigation
+    app.get('/:path*', (req, res, next) => {
       if (req.path.startsWith('/api')) {
         return next();
       }

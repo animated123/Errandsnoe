@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Application user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["requester", "runner", "admin", "tester"] },
+        "isAdmin": { "type": "boolean" },
+        "isVerified": { "type": "boolean" },
+        "rating": { "type": "number" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "email", "name", "role"]
+    },
+    "Errand": {
+      "title": "Errand",
+      "description": "A task posted by a requester",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "budget": { "type": "number" },
+        "status": { "type": "string" },
+        "requesterId": { "type": "string" },
+        "runnerId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "title", "description", "budget", "status", "requesterId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/errands/{errandId}": {
+      "schema": "Errand",
+      "description": "Task postings"
+    }
+  }
+}

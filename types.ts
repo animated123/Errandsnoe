@@ -186,6 +186,10 @@ export interface Errand {
   serviceFee?: number;
   isFundsLocked?: boolean;
   lockedAmount?: number;
+  jobStartedAt?: number;
+  reassignedAt?: number;
+  runnerRatingGiven?: number;
+  receiptServiceFee?: number;
   
   // Financial
   maxShoppingBudget?: number;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, Component } from 'react';
 import { 
   Plus, MapPin, DollarSign, Calendar, Briefcase, 
   CheckCircle, Star, Camera, Navigation, Clock, Map as MapIcon, 
@@ -31,7 +31,7 @@ const callGeminiWithRetry = async (prompt: string, maxRetries = 3): Promise<stri
   if (typeof prompt !== 'string') return "";
   for (let i = 0; i < maxRetries; i++) {
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -1159,7 +1159,7 @@ const SupportChatOverlay: React.FC<{ user: User }> = ({ user }) => {
               </div>
             ) : (
               chat.messages.map((m: any, i: number) => (
-                <div key={i} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
+                <div key={m.id || i} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
                   <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] font-medium leading-relaxed ${m.senderId === user.id ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
                     {m.text}
                   </div>
@@ -1198,8 +1198,64 @@ const SupportChatOverlay: React.FC<{ user: User }> = ({ user }) => {
   );
 };
 
+class ErrorBoundary extends React.Component<any, any> {
+  state: { hasError: boolean, error: any };
+  props: { children: React.ReactNode };
+
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "An unexpected error occurred.";
+      try {
+        if (this.state.error?.message) {
+          const parsed = JSON.parse(this.state.error.message);
+          if (parsed.error) errorMessage = parsed.error;
+        }
+      } catch (e) {
+        errorMessage = this.state.error?.message || errorMessage;
+      }
+
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+          <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl border border-red-100 text-center space-y-6">
+            <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
+              <AlertTriangle size={40} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Something went wrong</h2>
+              <p className="text-sm text-slate-500 font-medium mt-2 leading-relaxed">
+                {errorMessage}
+              </p>
+            </div>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:bg-black transition-all active:scale-95"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
-  const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || '';
   const [user, setUser] = useState<User | null>(null);
   const [showLoyaltyModal, setShowLoyaltyModal] = useState(false);
   const [showPriceRequestModal, setShowPriceRequestModal] = useState<PriceRequest | null>(null);
@@ -1320,13 +1376,16 @@ export default function App() {
   const [authForm, setAuthForm] = useState({ name: '', email: '', phone: '', password: '', role: UserRole.REQUESTER });
 
   useEffect(() => {
-    firebaseService.getCurrentUser().then(u => { 
-      if (u) { 
-        setUser(u); 
+    const unsub = firebaseService.subscribeToAuth(u => {
+      if (u) {
+        setUser(u);
         setIsDarkMode(u.theme === 'dark');
-      } 
-      setLoading(false); 
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
     });
+    return () => unsub();
   }, []);
 
   useEffect(() => {
@@ -1399,6 +1458,16 @@ export default function App() {
       unsubNotifs();
       if (unsubAvailable) unsubAvailable();
     };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !selectedErrand) return;
+    
+    // We don't need a separate subscription for selectedErrand because 
+    // subscribeToUserErrands already updates it if it's in the list.
+    // However, if we want to ensure it's always fresh even if not in the main list:
+    // const unsub = firebaseService.subscribeToErrand(selectedErrand.id, setSelectedErrand);
+    // return () => unsub();
   }, [user, selectedErrand?.id]);
 
   const filteredErrands = useMemo(() => {
@@ -1515,13 +1584,12 @@ export default function App() {
   const handleRunnerComplete = async (id: string, comments: string, photo?: string) => {
     if (!user) return;
     
-    // GPS Spoofing check
+    // GPS Spoofing check (Non-blocking warning)
     if (currentLocation && selectedErrand?.dropoffCoordinates) {
       const dist = calculateDistance(currentLocation, selectedErrand.dropoffCoordinates);
       if (dist > 0.5) { // 500m threshold
-        if (!window.confirm(`You appear to be ${dist.toFixed(1)}km away from the drop-off location. Are you sure you want to submit? This may be flagged as GPS spoofing.`)) {
-          return;
-        }
+        console.warn(`User is ${dist.toFixed(1)}km away from drop-off.`);
+        // Proceeding without blocking confirm for now as it may be blocked in iframe
       }
     }
 
@@ -1529,7 +1597,7 @@ export default function App() {
     try {
       await firebaseService.submitForReview(id, comments, photo);
       await refreshErrand();
-    } catch (e) { alert("Submission failed."); } finally { setIsProcessing(false); }
+    } catch (e) { console.error("Submission failed.", e); } finally { setIsProcessing(false); }
   };
 
   const handleCompleteErrand = async (errandId: string) => {
@@ -1589,7 +1657,8 @@ export default function App() {
   };
 
   return (
-    <APIProvider apiKey={googleMapsApiKey || ''}>
+    <ErrorBoundary>
+      <APIProvider apiKey={googleMapsApiKey || ''}>
       <Layout 
         user={user} 
       onLogout={() => firebaseService.logout().then(() => setUser(null))} 
@@ -1617,7 +1686,7 @@ export default function App() {
           <div className="space-y-5 pb-8">
             <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2rem] p-6 text-white relative overflow-hidden shadow-xl shadow-indigo-100">
               <div className="relative z-10">
-                <h2 className="text-xl font-black mb-0.5 tracking-tight">Hello, {user ? user.name.split(' ')[0] : 'Guest'}!</h2>
+                <h2 className="text-xl font-black mb-0.5 tracking-tight">Hello, {user?.name ? user.name.split(' ')[0] : 'Guest'}!</h2>
                 <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-80 mb-4">What can we do for you today?</p>
                 {user?.isAdmin && (
                   <div className="grid grid-cols-3 gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -1644,9 +1713,9 @@ export default function App() {
               />
               {searchSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-100 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                  {searchSuggestions.map((s, idx) => (
+                  {searchSuggestions.map((s) => (
                     <button 
-                      key={idx}
+                      key={s}
                       onClick={() => {
                         setSearchQuery(s);
                         setSearchSuggestions([]);
@@ -1905,7 +1974,7 @@ export default function App() {
                       )}
 
                       <div className="grid grid-cols-3 gap-2 mb-4">
-                        <div className="bg-slate-50 p-3 rounded-2xl"><p className="text-[7px] font-black uppercase text-slate-400">Rating</p><p className="text-sm font-black text-slate-900">{user.rating.toFixed(1)}</p></div>
+                        <div className="bg-slate-50 p-3 rounded-2xl"><p className="text-[7px] font-black uppercase text-slate-400">Rating</p><p className="text-sm font-black text-slate-900">{(user.rating || 5).toFixed(1)}</p></div>
                         <div className="bg-slate-50 p-3 rounded-2xl"><p className="text-[7px] font-black uppercase text-slate-400">Earnings</p><p className="text-sm font-black text-emerald-600">Ksh {user.balanceOnHold || 0}</p></div>
                         <div className="bg-slate-50 p-3 rounded-2xl"><p className="text-[7px] font-black uppercase text-slate-400">Wallet</p><p className="text-sm font-black text-indigo-600">Ksh {user.walletBalance || 0}</p></div>
                       </div>
@@ -2019,6 +2088,18 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+
+                    {user.role === UserRole.ADMIN && (
+                      <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm mb-4">
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="p-3 bg-red-600 text-white rounded-xl"><ShieldAlert size={20} /></div>
+                          <div><h3 className="text-base font-black text-slate-900">Administration</h3><p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Manage App</p></div>
+                        </div>
+                        <div className="space-y-1">
+                          <ProfileMenuItem icon={<LayoutGrid size={18} />} label="Admin Dashboard" onClick={() => setActiveTab('admin')} />
+                        </div>
+                      </div>
+                    )}
 
                     <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm">
                       <div className="flex items-center gap-3 mb-8">
@@ -2158,7 +2239,8 @@ export default function App() {
         firebaseService={firebaseService} 
       />
     </Layout>
-  </APIProvider>
+      </APIProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -2351,8 +2433,8 @@ const PriceGuideModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
           { category: 'Cleaning Services', price: 'Ksh 800', unit: 'per room' },
           { category: 'Pet Walking', price: 'Ksh 400', unit: 'per hour' },
           { category: 'General Errands', price: 'Ksh 500', unit: 'base rate' }
-        ].map((item, idx) => (
-          <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+        ].map((item) => (
+          <div key={item.category} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
             <div>
               <p className="text-xs font-black text-slate-900">{item.category}</p>
               <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{item.unit}</p>
@@ -2404,7 +2486,7 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isIconUploading, setIsIconUploading] = useState(false);
-  const [activeAdminTab, setActiveAdminTab] = useState<'stats' | 'branding' | 'support' | 'applications' | 'services' | 'listings' | 'users'>('stats');
+  const [activeAdminTab, setActiveAdminTab] = useState<'stats' | 'branding' | 'support' | 'applications' | 'services' | 'listings' | 'users' | 'system'>('stats');
   const [dbUsers, setDbUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [supportChats, setSupportChats] = useState<any[]>([]);
@@ -2419,7 +2501,7 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
   const logoFileRef = useRef<HTMLInputElement>(null);
   const iconFileRef = useRef<HTMLInputElement>(null);
 
-  const isSuperAdmin = user.email === 'admin@codexict.co.ke' || user.email === 'ngugimaina4@gmail.com';
+  const isSuperAdmin = user?.email === 'admin@codexict.co.ke' || user?.email === 'ngugimaina4@gmail.com';
 
   useEffect(() => {
     setPrimaryColor(settings.primaryColor);
@@ -2553,6 +2635,7 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
         <button onClick={() => setActiveAdminTab('applications')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'applications' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Applications</button>
         <button onClick={() => setActiveAdminTab('listings')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'listings' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Menu Listings</button>
         <button onClick={() => setActiveAdminTab('users')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'users' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Users</button>
+        <button onClick={() => setActiveAdminTab('system')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'system' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>System</button>
         <button onClick={() => setActiveAdminTab('services')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'services' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Featured</button>
         {isSuperAdmin && <button onClick={() => setActiveAdminTab('branding')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'branding' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Branding</button>}
         <button onClick={() => setActiveAdminTab('support')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'support' ? 'bg-white text-black shadow-sm' : 'text-slate-400'} flex items-center gap-2`}>
@@ -2612,8 +2695,8 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
             <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Revenue (Last 7 Days)</h3>
               <div className="h-40 flex items-end gap-2">
-                {stats.revenuePerDay?.map((day: any, i: number) => (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
+                {stats.revenuePerDay?.map((day: any) => (
+                  <div key={day.date} className="flex-1 flex flex-col items-center gap-2 group">
                     <div 
                       className="w-full bg-indigo-600 rounded-t-lg transition-all group-hover:bg-indigo-700" 
                       style={{ height: `${Math.max(10, (day.amount / Math.max(...stats.revenuePerDay.map((d: any) => d.amount || 1))) * 100)}%` }}
@@ -2837,6 +2920,57 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {activeAdminTab === 'system' && (
+        <div className="space-y-6 animate-in fade-in">
+          <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Environment Configuration</h3>
+            <div className="space-y-3">
+              {[
+                { label: 'Firebase API Key', value: import.meta.env.VITE_FIREBASE_API_KEY },
+                { label: 'Firebase Project ID', value: import.meta.env.VITE_FIREBASE_PROJECT_ID },
+                { label: 'Google Maps Key', value: import.meta.env.VITE_GOOGLE_MAPS_API_KEY },
+                { label: 'Cloudinary Name', value: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME },
+                { label: 'Gemini API Key', value: process.env.GEMINI_API_KEY || process.env.API_KEY },
+                { label: 'TalkSasa Token', value: process.env.TALKSASA_TOKEN },
+                { label: 'Resend API Key', value: process.env.RESEND_API_KEY },
+              ].map((env) => (
+                <div key={env.label} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{env.label}</span>
+                  <div className="flex items-center gap-2">
+                    {env.value ? (
+                      <div className="flex items-center gap-1 text-emerald-600">
+                        <CheckCircle size={14} />
+                        <span className="text-[10px] font-black uppercase tracking-widest">Configured</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-red-500">
+                        <AlertCircle size={14} />
+                        <span className="text-[10px] font-black uppercase tracking-widest">Missing</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div className="mt-8 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+              <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-2">Deployment Tip</p>
+              <p className="text-[11px] text-indigo-900/70 leading-relaxed font-medium">
+                If you are deploying to Netlify or Vercel, make sure to add these variables in your dashboard settings. 
+                Use the <code className="bg-white px-1 rounded">VITE_</code> prefix for client-side variables like Firebase and Maps.
+              </p>
+            </div>
+            
+            <button 
+              onClick={() => window.open('/api/admin/export-env', '_blank')}
+              className="mt-6 w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-black transition-all shadow-lg shadow-slate-200"
+            >
+              <Download size={16} /> Download .env Template
+            </button>
+          </div>
         </div>
       )}
 
@@ -3112,7 +3246,7 @@ const SupportChatView: React.FC<{ user: User, targetUserId?: string, isAdmin?: b
           </div>
         ) : (
           chat.messages.map((m: any, i: number) => (
-            <div key={i} className={`flex flex-col ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'items-end' : 'items-start'}`}>
+            <div key={m.id || i} className={`flex flex-col ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[80%] p-4 rounded-2xl text-xs font-medium leading-relaxed ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'bg-indigo-600 text-white rounded-tr-none shadow-lg shadow-indigo-100' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
                 {m.text}
               </div>
@@ -3376,7 +3510,6 @@ const RunnerApplicationFlow: React.FC<{ user: User, onBack: () => void }> = ({ u
 
 const ChatSection: React.FC<{ errandId: string, messages: ChatMessage[], user: User | null, onSendMessage: (text: string) => void }> = ({ errandId, messages, user, onSendMessage }) => {
   const [text, setText] = useState('');
-  const [isCollapsed, setIsCollapsed] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const QUICK_REPLIES = [
@@ -3388,8 +3521,8 @@ const ChatSection: React.FC<{ errandId: string, messages: ChatMessage[], user: U
   ];
 
   useEffect(() => {
-    if (scrollRef.current && !isCollapsed) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, isCollapsed]);
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
 
   const handleSend = (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
@@ -3400,64 +3533,64 @@ const ChatSection: React.FC<{ errandId: string, messages: ChatMessage[], user: U
   };
 
   return (
-    <div className={`flex flex-col bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden transition-all duration-300 ${isCollapsed ? 'h-[50px]' : 'h-[450px]'}`}>
-      <button 
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="p-3 border-b bg-white flex items-center justify-between w-full hover:bg-slate-50 transition-colors"
-      >
+    <div className="flex flex-col bg-slate-50 rounded-[2rem] border border-slate-200 overflow-hidden h-[60vh] shadow-sm animate-in zoom-in-95">
+      <div className="p-4 border-b bg-white flex items-center justify-between w-full shrink-0">
         <div className="flex items-center gap-2">
-          <MessageSquare size={14} className="text-indigo-600" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-900">Live Chat</span>
-          {messages.length > 0 && isCollapsed && (
-            <span className="bg-indigo-600 text-white text-[8px] px-1.5 py-0.5 rounded-full font-black">{messages.length}</span>
+          <MessageSquare size={16} className="text-indigo-600" />
+          <span className="text-xs font-black uppercase tracking-widest text-slate-900">Live Chat</span>
+          {messages.length > 0 && (
+            <span className="bg-indigo-600 text-white text-[9px] px-2 py-0.5 rounded-full font-black">{messages.length}</span>
           )}
         </div>
-        {isCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-      </button>
-      {!isCollapsed && (
-        <>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-            {messages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-300 opacity-50 gap-2">
-                <MessageSquare size={32} strokeWidth={1} />
-                <p className="text-[10px] font-bold uppercase">No messages yet</p>
+      </div>
+      
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
+        {messages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-slate-300 opacity-50 gap-2">
+            <MessageSquare size={32} strokeWidth={1} />
+            <p className="text-[10px] font-bold uppercase">No messages yet</p>
+          </div>
+        ) : (
+          messages.map((m) => (
+            <div key={m.id} className={`flex flex-col ${m.senderId === user?.id ? 'items-end' : 'items-start'}`}>
+              <div className={`max-w-[80%] p-3 rounded-2xl text-xs font-medium ${m.senderId === user?.id ? 'bg-black text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
+                {m.text}
               </div>
-            ) : (
-              messages.map((m, i) => (
-                <div key={i} className={`flex flex-col ${m.senderId === user?.id ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[80%] p-3 rounded-2xl text-xs font-medium ${m.senderId === user?.id ? 'bg-black text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
-                    {m.text}
-                  </div>
-                  <span className="text-[8px] font-black text-slate-400 uppercase mt-1 px-1">{m.senderName} • {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-              ))
-            )}
-          </div>
-          
-          <div className="px-3 py-2 bg-white border-t overflow-x-auto flex gap-2 no-scrollbar">
-            {QUICK_REPLIES.map((reply, idx) => (
-              <button 
-                key={idx} 
-                onClick={() => handleSend(undefined, reply)}
-                className="whitespace-nowrap px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-tight transition-colors"
-              >
-                {reply}
-              </button>
-            ))}
-          </div>
+              <span className="text-[8px] font-black text-slate-400 uppercase mt-1 px-1">{m.senderName} • {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+          ))
+        )}
+      </div>
 
-          <form onSubmit={handleSend} className="p-3 bg-white border-t flex gap-2">
-            <input 
-              type="text" value={text} onChange={e => setText(e.target.value)} 
-              placeholder="Type a message..." 
-              className="flex-1 bg-slate-50 border-none rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-black/5"
-            />
-            <button type="submit" className="p-2 bg-black text-white rounded-xl active:scale-90 transition-all">
-              <ArrowRight size={18} />
+      <div className="p-3 bg-white border-t space-y-3 shrink-0">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          {QUICK_REPLIES.map((reply, i) => (
+            <button 
+              key={reply}
+              onClick={() => handleSend(undefined, reply)}
+              className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl text-[9px] font-bold whitespace-nowrap border border-slate-100 transition-colors"
+            >
+              {reply}
             </button>
-          </form>
-        </>
-      )}
+          ))}
+        </div>
+        <form onSubmit={handleSend} className="flex gap-2">
+          <input 
+            type="text" 
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Type a message..."
+            className="flex-1 bg-slate-50 border-none rounded-xl px-4 py-3 text-xs font-medium focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+          />
+          <button 
+            type="submit"
+            disabled={!text.trim()}
+            className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-100 active:scale-95"
+          >
+            <ArrowRight size={16} />
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
@@ -3554,7 +3687,7 @@ const LoyaltyBenefitsModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
         
         <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4 no-scrollbar">
           {levels.map((l, idx) => (
-            <div key={idx} className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
+            <div key={l.level} className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 ${l.color} text-white rounded-xl flex items-center justify-center shadow-lg shadow-slate-100`}><Sparkles size={20} /></div>
@@ -3568,8 +3701,8 @@ const LoyaltyBenefitsModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                 </div>
               </div>
               <div className="space-y-2">
-                {l.benefits.map((b, i) => (
-                  <div key={i} className="flex items-center gap-2">
+                {l.benefits.map((b) => (
+                  <div key={b} className="flex items-center gap-2">
                     <div className="w-4 h-4 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center"><Check size={10} /></div>
                     <p className="text-[10px] font-bold text-slate-600">{b}</p>
                   </div>
@@ -4253,7 +4386,7 @@ const ErrandDetailScreen: React.FC<any> = ({
               <button 
                 key={tab.id}
                 onClick={() => setActiveDetailTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeDetailTab === tab.id ? 'bg-black text-white shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                className={`flex items-center gap-2 px-4 h-9 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap justify-center ${activeDetailTab === tab.id ? 'bg-black text-white shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
               >
                 <tab.icon size={14} /> {tab.label}
               </button>
@@ -4444,7 +4577,7 @@ const ErrandDetailScreen: React.FC<any> = ({
           {activeDetailTab === 'details' && (
             <>
           {isReassigning ? (
-            <section className="space-y-4 animate-in fade-in zoom-in-95"><h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Why reassign?</h4><div className="space-y-2">{REASSIGN_REASONS.map((r, idx) => (<button key={idx} onClick={() => setReassignReason(r)} className={`w-full text-left p-4 rounded-2xl border-2 font-bold text-xs transition-all ${reassignReason === r ? 'border-black bg-slate-50' : 'border-slate-100'}`}>{r}</button>))}</div><div className="flex gap-3"><button onClick={() => setIsReassigning(false)} className="flex-1 py-4 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest">Cancel</button><button onClick={handleReassign} className="flex-1 py-4 bg-black text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">Confirm Reassign</button></div></section>
+            <section className="space-y-4 animate-in fade-in zoom-in-95"><h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Why reassign?</h4><div className="space-y-2">{REASSIGN_REASONS.map((r) => (<button key={r} onClick={() => setReassignReason(r)} className={`w-full text-left p-4 rounded-2xl border-2 font-bold text-xs transition-all ${reassignReason === r ? 'border-black bg-slate-50' : 'border-slate-100'}`}>{r}</button>))}</div><div className="flex gap-3"><button onClick={() => setIsReassigning(false)} className="flex-1 py-4 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest">Cancel</button><button onClick={handleReassign} className="flex-1 py-4 bg-black text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">Confirm Reassign</button></div></section>
           ) : isRescheduling ? (
             <section className="space-y-5 animate-in fade-in slide-in-from-bottom-2">
               <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Reschedule Errand</h4>
@@ -4497,7 +4630,7 @@ const ErrandDetailScreen: React.FC<any> = ({
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Visual Checklist</p>
                         <div className="grid grid-cols-1 gap-1">
                           {selectedErrand.checklist.map((item: any, idx: number) => (
-                            <div key={idx} className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
+                            <div key={item.item || idx} className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
                               {item.checked ? <CheckCircle2 size={12} className="text-emerald-500" /> : <div className="w-3 h-3 rounded-full border border-slate-200" />}
                               <span className={item.checked ? 'line-through opacity-50' : ''}>{item.item}</span>
                             </div>
@@ -4649,8 +4782,8 @@ const ErrandDetailScreen: React.FC<any> = ({
                       <div className="p-10 border-2 border-dashed border-slate-100 rounded-[1.5rem] text-center text-slate-300 font-bold">Waiting for runners...</div>
                     ) : (
                       <div className="grid grid-cols-1 gap-3">
-                        {selectedErrand.bids.map((b: any, i: number) => (
-                          <div key={i} className="bg-white border border-slate-100 p-4 rounded-2xl flex items-center justify-between shadow-sm">
+                        {selectedErrand.bids.map((b: any) => (
+                          <div key={b.runnerId} className="bg-white border border-slate-100 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                             <div className="flex items-center gap-3">
                               <img src={`https://ui-avatars.com/api/?name=${b.runnerName}&background=000&color=fff`} className="w-10 h-10 rounded-xl" />
                               <div>
@@ -4694,7 +4827,7 @@ const ErrandDetailScreen: React.FC<any> = ({
           )}
 
           {activeDetailTab === 'map' && selectedErrand.pickupCoordinates && selectedErrand.dropoffCoordinates && (
-            <div className="h-[50vh] w-full rounded-[2rem] overflow-hidden border border-slate-200 shadow-sm animate-in zoom-in-95">
+            <div className="h-[60vh] w-full rounded-[2rem] overflow-hidden border border-slate-200 shadow-sm animate-in zoom-in-95">
               <Map 
                 defaultCenter={{ lat: selectedErrand.pickupCoordinates.lat, lng: selectedErrand.pickupCoordinates.lng }} 
                 defaultZoom={13} 
@@ -4793,7 +4926,7 @@ const ErrandDetailScreen: React.FC<any> = ({
                   </div>
                   <div className="space-y-4">
                     {selectedErrand.microSteps.map((step: any, idx: number) => (
-                      <div key={idx} className="flex items-start gap-4 group">
+                      <div key={step.label || idx} className="flex items-start gap-4 group">
                         <div className="flex flex-col items-center">
                           <button 
                             disabled={!isRunner || selectedErrand.status !== ErrandStatus.ACCEPTED}
@@ -4879,7 +5012,7 @@ const ErrandDetailScreen: React.FC<any> = ({
                       {selectedErrand.proofs && selectedErrand.proofs.length > 0 ? (
                         <div className="grid grid-cols-2 gap-3">
                           {selectedErrand.proofs.map((proof: any, idx: number) => (
-                            <div key={idx} className="space-y-1.5 group cursor-pointer" onClick={() => setFullScreenImage(proof.url)}>
+                            <div key={proof.url || idx} className="space-y-1.5 group cursor-pointer" onClick={() => setFullScreenImage(proof.url)}>
                               <div className="aspect-square rounded-2xl overflow-hidden border border-slate-100 shadow-sm relative">
                                 <img src={proof.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={proof.label} />
                                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2">
