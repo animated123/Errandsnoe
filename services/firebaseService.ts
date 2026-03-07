@@ -1,9 +1,12 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from 'firebase/auth';
+import { 
+  getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
+  signOut, onAuthStateChanged, updateProfile, signInWithCustomToken 
+} from 'firebase/auth';
 import { 
   getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, 
   query, where, orderBy, onSnapshot, Timestamp, addDoc, limit, serverTimestamp,
-  increment, arrayUnion, arrayRemove, getDocFromServer
+  increment, arrayUnion, arrayRemove, getDocFromServer, initializeFirestore
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 import { 
@@ -14,7 +17,9 @@ import {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
 
 export const calculateDistance = (p1: Coordinates, p2: Coordinates) => {
   const R = 6371;
@@ -26,13 +31,14 @@ export const calculateDistance = (p1: Coordinates, p2: Coordinates) => {
 };
 
 export const formatFirebaseError = (error: any): string => {
-  if (typeof error === 'string') {
+  const message = typeof error === 'string' ? error : error.message;
+  if (message) {
     try {
-      const parsed = JSON.parse(error);
+      const parsed = JSON.parse(message);
       if (parsed.error) return parsed.error;
     } catch (e) {}
   }
-  return error.message || "An unexpected error occurred.";
+  return message || "An unexpected error occurred.";
 };
 
 enum OperationType {
@@ -118,6 +124,27 @@ class FirebaseService {
   async login(email: string, password: string): Promise<User> {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+      if (!userDoc.exists()) throw new Error("User data not found");
+      const data = userDoc.data() as User;
+      return {
+        ...data,
+        id: userCredential.user.uid,
+        role: data.role || UserRole.REQUESTER,
+        rating: data.rating || 5,
+        name: data.name || 'User'
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('permission')) {
+        handleFirestoreError(error, OperationType.GET, 'users');
+      }
+      throw error;
+    }
+  }
+
+  async signInWithToken(token: string): Promise<User> {
+    try {
+      const userCredential = await signInWithCustomToken(auth, token);
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       if (!userDoc.exists()) throw new Error("User data not found");
       const data = userDoc.data() as User;

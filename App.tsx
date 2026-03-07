@@ -248,8 +248,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recently Used</p>
             </div>
           )}
-          {query.length === 0 && recentLocations.map((loc, i) => (
-            <button key={`recent-${i}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+          {query.length === 0 && recentLocations.map((loc) => (
+            <button key={loc.name} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Clock size={14} className="text-slate-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -264,8 +264,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Popular Locations</p>
             </div>
           )}
-          {query.length === 0 && popularLocations.slice(0, 5).map((loc, i) => (
-            <button key={`popular-${i}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+          {query.length === 0 && popularLocations.slice(0, 5).map((loc) => (
+            <button key={loc.name} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Star size={14} className="text-amber-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -276,8 +276,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
 
           {/* Search Suggestions */}
           {query.length > 0 && suggestions.length > 0 ? (
-            suggestions.map((s, i) => (
-              <button key={`sug-${i}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
+            suggestions.map((s) => (
+              <button key={s.name} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
                 <div className="flex justify-between items-start">
                   <p className="text-xs font-black text-slate-900">{s.name}</p>
                   <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{s.area}</p>

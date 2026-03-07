@@ -2,8 +2,19 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import admin from 'firebase-admin';
 import { firebaseService } from './services/firebaseService';
 import { ErrandStatus } from './types';
+import firebaseConfig from './firebase-applet-config.json';
+
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: firebaseConfig.projectId,
+  });
+}
+const adminAuth = admin.auth();
+const adminDb = admin.firestore();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -179,7 +190,7 @@ export async function createServer() {
     }
   });
 
-  app.post('/api/auth/verify/step', (req, res) => {
+  app.post('/api/auth/verify/step', async (req, res) => {
     const { phone, email, smsCode, emailCode, type } = req.body;
     
     let normalizedPhone = '';
@@ -220,11 +231,49 @@ export async function createServer() {
 
     if (isFullyVerified) {
       verificationStore.delete(key);
-      return res.json({ 
-        success: true, 
-        fullyVerified: true, 
-        message: 'Identity fully verified' 
-      });
+      
+      try {
+        // Find or create user to get UID for custom token
+        let uid: string | null = null;
+        
+        // Try finding by phone
+        if (normalizedPhone) {
+          try {
+            const userRecord = await adminAuth.getUserByPhoneNumber('+' + normalizedPhone);
+            uid = userRecord.uid;
+          } catch (e) {}
+        }
+        
+        // Try finding by email if phone failed
+        if (!uid && email) {
+          try {
+            const userRecord = await adminAuth.getUserByEmail(email);
+            uid = userRecord.uid;
+          } catch (e) {}
+        }
+
+        // If user exists, create custom token
+        if (uid) {
+          const customToken = await adminAuth.createCustomToken(uid);
+          return res.json({ 
+            success: true, 
+            fullyVerified: true, 
+            customToken,
+            message: 'Identity fully verified' 
+          });
+        } else {
+          // User doesn't exist, they need to register
+          return res.json({ 
+            success: true, 
+            fullyVerified: true, 
+            needsRegistration: true,
+            message: 'Identity verified, please complete registration' 
+          });
+        }
+      } catch (error) {
+        console.error('Custom token error:', error);
+        return res.status(500).json({ error: 'Failed to generate access token' });
+      }
     }
 
     res.json({ 
@@ -297,6 +346,12 @@ export async function createServer() {
   
   // We wrap this to ensure the server starts listening even if Firebase check fails
   cancelStaleErrands().catch(err => console.error("Initial stale check failed", err));
+
+  // Global error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Unhandled Server Error:', err);
+    res.status(500).json({ error: err.message || 'A server error occurred' });
+  });
 
   return { app, PORT };
 }

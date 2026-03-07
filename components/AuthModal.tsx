@@ -44,6 +44,17 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
 
   if (!isOpen) return null;
 
+  const safeFetch = async (url: string, options: any) => {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return await res.json();
+    }
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || `Server error: ${res.status}`);
+    return { success: true, message: text };
+  };
+
   const handleSendVerificationPackage = async () => {
     if (otpType === 'phone' && !form.phone) return setError('Phone is required');
     if (otpType === 'email' && !form.email) return setError('Email is required');
@@ -51,7 +62,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/verify/send-package', {
+      const data = await safeFetch('/api/auth/verify/send-package', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -60,13 +71,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
           type: otpType
         })
       });
-      const data = await res.json();
       if (data.error) throw new Error(data.error);
       setOtpStep('verify');
       if (otpType === 'phone') setSmsResendTimer(60);
       if (otpType === 'email') setEmailResendTimer(60);
     } catch (e: any) {
-      setError(e.message);
+      setError(formatFirebaseError(e));
     } finally {
       setLoading(false);
     }
@@ -79,7 +89,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/verify/step', {
+      const data = await safeFetch('/api/auth/verify/step', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -90,7 +100,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
           type: otpType
         })
       });
-      const data = await res.json();
       if (data.error) throw new Error(data.error);
       
       if (data.phoneVerified) setPhoneVerified(true);
@@ -98,8 +107,17 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
 
       if (data.fullyVerified) {
         if (isLogin) {
-          const user = await firebaseService.signInWithPhone(form.phone || form.email);
-          onAuthSuccess(user);
+          if (data.customToken) {
+            const user = await firebaseService.signInWithToken(data.customToken);
+            onAuthSuccess(user);
+          } else if (data.needsRegistration) {
+            setIsLogin(false);
+            setUseOTP(false);
+            setError("Account not found. Please register.");
+            return;
+          } else {
+            throw new Error("Verification successful but no access token received.");
+          }
         } else {
           const user = await firebaseService.register(form.name, form.email, form.phone, form.password);
           onAuthSuccess(user);
@@ -107,7 +125,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
         onClose();
       }
     } catch (e: any) {
-      setError(e.message);
+      setError(formatFirebaseError(e));
     } finally {
       setLoading(false);
     }
