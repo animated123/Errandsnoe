@@ -37,7 +37,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeTab, se
 
   const isRequester = !user || user.role === UserRole.REQUESTER;
   const isRunner = user?.role === UserRole.RUNNER;
-  const isAdmin = user?.isAdmin || false;
+  const isAdmin = user?.role === UserRole.ADMIN || user?.isAdmin || false;
   const unreadCount = notifs.filter(n => !n.read).length;
 
   const handleOpenNotifs = async () => {
@@ -181,6 +181,9 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeTab, se
 
           <NavButton active={activeTab === 'create'} onClick={() => setActiveTab('create')} icon={<PlusCircle size={20} />} label="Post" />
           <NavButton active={activeTab === 'my-errands'} onClick={() => setActiveTab('my-errands')} icon={<Briefcase size={20} />} label="Tasks" />
+          {isAdmin && (
+            <NavButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')} icon={<ShieldAlert size={20} />} label="Admin" />
+          )}
           <NavButton active={activeTab === 'active'} onClick={() => setActiveTab('active')} icon={<UserCircle size={20} />} label="Profile" />
         </nav>
       </div>

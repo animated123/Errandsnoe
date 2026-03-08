@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import admin from 'firebase-admin';
-import { firebaseService } from './services/firebaseService';
+// import { firebaseService } from './services/firebaseService'; // Removed to prevent client SDK initialization in Node
 import { ErrandStatus } from './types';
 import firebaseConfig from './firebase-applet-config.json';
 
@@ -18,6 +18,19 @@ const adminDb = admin.firestore();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Helper functions for server-side Firestore operations
+const fetchStaleErrands = async (beforeTimestamp: number) => {
+  const snapshot = await adminDb.collection('errands')
+    .where('status', '==', ErrandStatus.PENDING)
+    .where('createdAt', '<', beforeTimestamp)
+    .get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+};
+
+const cancelErrand = async (id: string) => {
+  await adminDb.collection('errands').doc(id).update({ status: ErrandStatus.CANCELLED });
+};
 
 export async function createServer() {
   const app = express();
@@ -100,7 +113,13 @@ export async function createServer() {
     res.send(envContent);
   });
 
+  // Check for fetch availability
+  if (!global.fetch) {
+    console.warn("WARNING: Global fetch is not available. External API calls may fail.");
+  }
+
   app.post('/api/auth/verify/send-package', async (req, res) => {
+    console.log('Received verification request:', req.body);
     const { phone, email, type } = req.body; // type: 'phone' | 'email' | 'both'
     if (type === 'phone' && !phone) return res.status(400).json({ error: 'Phone is required' });
     if (type === 'email' && !email) return res.status(400).json({ error: 'Email is required' });
@@ -138,48 +157,74 @@ export async function createServer() {
     try {
       const promises = [];
 
+      // Helper for fetch with timeout
+      const fetchWithTimeout = async (url: string, options: any, timeout = 5000) => {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+        try {
+          const response = await fetch(url, { ...options, signal: controller.signal });
+          clearTimeout(id);
+          if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`HTTP ${response.status}: ${text}`);
+          }
+          return response;
+        } catch (error) {
+          clearTimeout(id);
+          throw error;
+        }
+      };
+
       // Send SMS via TalkSasa
       if (type === 'phone' || type === 'both') {
-        promises.push(fetch('https://bulksms.talksasa.com/api/v3/sms/send', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.TALKSASA_TOKEN}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({
-            recipient: normalizedPhone,
-            sender_id: process.env.TALKSASA_SENDER_ID || 'TALK-SASA',
-            type: 'plain',
-            message: `Your verification code is ${smsCode}. Valid for 5 mins.`
-          })
-        }));
+        if (process.env.TALKSASA_TOKEN) {
+          promises.push(fetchWithTimeout('https://bulksms.talksasa.com/api/v3/sms/send', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.TALKSASA_TOKEN}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              recipient: normalizedPhone,
+              sender_id: process.env.TALKSASA_SENDER_ID || 'TALK-SASA',
+              type: 'plain',
+              message: `Your verification code is ${smsCode}. Valid for 5 mins.`
+            })
+          }).catch(e => console.error('SMS Send Error:', e.message)));
+        } else {
+          console.warn('TALKSASA_TOKEN not configured, skipping SMS');
+        }
       }
 
       // Send Email via Resend
       if (type === 'email' || type === 'both') {
-        promises.push(fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            from: process.env.RESEND_FROM || 'onboarding@resend.dev',
-            to: email,
-            subject: 'Verify your account',
-            html: `
-              <div style="font-family: sans-serif; padding: 20px; color: #333;">
-                <h2 style="color: #000;">Verification Code</h2>
-                <p>Your verification code is:</p>
-                <div style="background: #f4f4f4; padding: 20px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; border-radius: 10px;">
-                  ${emailCode}
+        if (process.env.RESEND_API_KEY) {
+          promises.push(fetchWithTimeout('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              from: process.env.RESEND_FROM || 'onboarding@resend.dev',
+              to: email,
+              subject: 'Verify your account',
+              html: `
+                <div style="font-family: sans-serif; padding: 20px; color: #333;">
+                  <h2 style="color: #000;">Verification Code</h2>
+                  <p>Your verification code is:</p>
+                  <div style="background: #f4f4f4; padding: 20px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; border-radius: 10px;">
+                    ${emailCode}
+                  </div>
+                  <p style="font-size: 12px; color: #666; margin-top: 20px;">This code expires in 5 minutes.</p>
                 </div>
-                <p style="font-size: 12px; color: #666; margin-top: 20px;">This code expires in 5 minutes.</p>
-              </div>
-            `
-          })
-        }));
+              `
+            })
+          }).catch(e => console.error('Email Send Error:', e.message)));
+        } else {
+          console.warn('RESEND_API_KEY not configured, skipping Email');
+        }
       }
 
       await Promise.all(promises);
@@ -327,12 +372,12 @@ export async function createServer() {
       const now = Date.now();
       const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
 
-      const staleErrands = await firebaseService.fetchStaleErrands(twentyFourHoursAgo);
+      const staleErrands = await fetchStaleErrands(twentyFourHoursAgo);
 
       for (const errand of staleErrands) {
         if (errand.status === ErrandStatus.PENDING) {
-            await firebaseService.cancelErrand(errand.id);
-            console.log(`Cancelled errand ${errand.id}`);
+          await cancelErrand(errand.id);
+          console.log(`Cancelled errand ${errand.id}`);
         }
       }
     } catch (error) {
