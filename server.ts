@@ -32,6 +32,57 @@ const cancelErrand = async (id: string) => {
   await adminDb.collection('errands').doc(id).update({ status: ErrandStatus.CANCELLED });
 };
 
+// Helper for fetch with timeout
+const fetchWithTimeout = async (url: string, options: any, timeout = 5000) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+};
+
+const sendSMS = async (recipient: string, message: string) => {
+  if (!process.env.TALKSASA_TOKEN) {
+    console.warn('TALKSASA_TOKEN not configured, skipping SMS');
+    return;
+  }
+
+  // Normalize phone number
+  let normalizedPhone = recipient.replace(/\D/g, '');
+  if (normalizedPhone.startsWith('0')) normalizedPhone = '254' + normalizedPhone.substring(1);
+  else if (normalizedPhone.startsWith('7') || normalizedPhone.startsWith('1')) normalizedPhone = '254' + normalizedPhone;
+
+  try {
+    await fetchWithTimeout('https://bulksms.talksasa.com/api/v3/sms/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.TALKSASA_TOKEN}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        recipient: normalizedPhone,
+        sender_id: process.env.TALKSASA_SENDER_ID || 'TALK-SASA',
+        type: 'plain',
+        message: message
+      })
+    });
+    console.log(`SMS sent to ${normalizedPhone}`);
+  } catch (error: any) {
+    console.error('SMS Send Error:', error.message);
+    throw error;
+  }
+};
+
 export async function createServer() {
   const app = express();
   
@@ -39,6 +90,21 @@ export async function createServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
+
+  // SMS Notification Endpoint
+  app.post('/api/notifications/sms', async (req, res) => {
+    const { recipient, message } = req.body;
+    if (!recipient || !message) {
+      return res.status(400).json({ error: 'Recipient and message are required' });
+    }
+
+    try {
+      await sendSMS(recipient, message);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Dual Verification Storage
   interface VerificationPackage {
@@ -380,17 +446,47 @@ export async function createServer() {
           console.log(`Cancelled errand ${errand.id}`);
         }
       }
-    } catch (error) {
-      // Don't let a firebase error crash the whole server startup
+    } catch (error: any) {
       console.error('Firebase sync error:', error.message);
     }
   };
 
-  // Run the check every hour
-  setInterval(cancelStaleErrands, 60 * 60 * 1000);
+  const checkOverdueVerifications = async () => {
+    console.log('Checking for overdue verifications...');
+    try {
+      const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
+      const snapshot = await adminDb.collection('errands')
+        .where('status', '==', ErrandStatus.VERIFYING)
+        .where('submittedForReviewAt', '<', twelveHoursAgo)
+        .get();
+
+      for (const doc of snapshot.docs) {
+        const data = doc.data();
+        if (data.penaltyNotificationSent) continue;
+
+        const requesterDoc = await adminDb.collection('users').doc(data.requesterId).get();
+        const requester = requesterDoc.data();
+
+        if (requester && requester.phone) {
+          const message = `ErrandsApp Alert: It has been over 12 hours since your runner completed "${data.title}". Please verify immediately to avoid accrued penalties.`;
+          await sendSMS(requester.phone, message);
+          await doc.ref.update({ penaltyNotificationSent: true });
+        }
+      }
+    } catch (error: any) {
+      console.error('Error checking overdue verifications:', error.message);
+    }
+  };
+
+  // Run checks every hour
+  setInterval(() => {
+    cancelStaleErrands();
+    checkOverdueVerifications();
+  }, 60 * 60 * 1000);
   
-  // We wrap this to ensure the server starts listening even if Firebase check fails
+  // Initial checks
   cancelStaleErrands().catch(err => console.error("Initial stale check failed", err));
+  checkOverdueVerifications().catch(err => console.error("Initial verification check failed", err));
 
   // Global error handler
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

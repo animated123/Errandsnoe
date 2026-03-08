@@ -156,6 +156,7 @@ export interface Errand {
   completedAt?: number;
   submittedForReviewAt?: number;
   approvalPenalty?: number;
+  penaltyNotificationSent?: boolean;
   
   // Reassignment
   reassignmentRequested?: boolean;

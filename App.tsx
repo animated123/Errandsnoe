@@ -1595,7 +1595,7 @@ export default function App() {
 
     setIsProcessing(true);
     try {
-      await firebaseService.submitForReview(id, comments, photo);
+      await firebaseService.submitForReview(id, comments, photo || '');
       await refreshErrand();
     } catch (e) { console.error("Submission failed.", e); } finally { setIsProcessing(false); }
   };
@@ -4278,7 +4278,7 @@ const ErrandDetailScreen: React.FC<any> = ({
       // For House Hunting, budget is 0, so amount > budget is always true, triggering placeBid (approval flow)
       if (selectedErrand.category !== ErrandCategory.HOUSE_HUNTING && amount <= selectedErrand.budget) {
         console.log("Accepting bid automatically");
-        await firebaseService.acceptBid(selectedErrand.id, user.id, amount);
+        await firebaseService.acceptBid(selectedErrand.id, user.id, user.name, amount, 'Ready Now');
         triggerHaptic();
         alert("Task assigned to you automatically!");
         refresh();
@@ -4795,7 +4795,7 @@ const ErrandDetailScreen: React.FC<any> = ({
                               <p className="text-sm font-black text-slate-900 mb-1.5">Ksh {b.price}</p>
                               <button 
                                 onClick={() => {
-                                  firebaseService.acceptBid(selectedErrand.id, b.runnerId, b.price);
+                                  firebaseService.acceptBid(selectedErrand.id, b.runnerId, b.runnerName, b.price, b.eta || 'ASAP');
                                   triggerHaptic();
                                 }} 
                                 className="px-5 py-2 bg-black text-white text-[9px] font-black uppercase rounded-lg"

@@ -333,7 +333,7 @@ class FirebaseService {
     }
   }
 
-  async acceptBid(errandId: string, runnerId: string, price: number): Promise<void> {
+  async acceptBid(errandId: string, runnerId: string, runnerName: string, price: number, eta: string = 'ASAP'): Promise<void> {
     try {
       await updateDoc(doc(db, 'errands', errandId), {
         runnerId,
@@ -341,6 +341,22 @@ class FirebaseService {
         status: ErrandStatus.ACCEPTED,
         jobStartedAt: Date.now()
       });
+
+      // Send SMS notification to requester if runner accepted automatically
+      const errand = await this.fetchErrandById(errandId);
+      if (errand && errand.requesterId !== auth.currentUser?.uid) {
+        const requester = await this.fetchUserById(errand.requesterId);
+        if (requester && requester.phone) {
+          await fetch('/api/notifications/sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipient: requester.phone,
+              message: `ErrandsApp Update: Your errand "${errand.title}" is now active!\nRunner: ${runnerName}\nEstimated Completion: ${eta}`
+            })
+          });
+        }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
     }
@@ -445,6 +461,19 @@ class FirebaseService {
   }
 
   // Admin
+  async fetchUserById(userId: string): Promise<User | null> {
+    try {
+      const docSnap = await getDoc(doc(db, 'users', userId));
+      if (docSnap.exists()) {
+        return { id: docSnap.id, ...docSnap.data() } as User;
+      }
+      return null;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, `users/${userId}`);
+      return null;
+    }
+  }
+
   async fetchAllUsers(): Promise<User[]> {
     try {
       const snapshot = await getDocs(collection(db, 'users'));
@@ -601,21 +630,61 @@ class FirebaseService {
   }
 
   async submitForReview(errandId: string, comments: string, photo: string): Promise<void> {
-    await this.updateErrand(errandId, {
-      status: ErrandStatus.VERIFYING,
-      runnerComments: comments,
-      completionPhoto: photo,
-      submittedForReviewAt: Date.now()
-    });
+    try {
+      await this.updateErrand(errandId, {
+        status: ErrandStatus.VERIFYING,
+        runnerComments: comments,
+        completionPhoto: photo,
+        submittedForReviewAt: Date.now()
+      });
+
+      // Notify requester
+      const errand = await this.fetchErrandById(errandId);
+      if (errand && errand.requesterId) {
+        const requester = await this.fetchUserById(errand.requesterId);
+        if (requester && requester.phone) {
+          await fetch('/api/notifications/sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipient: requester.phone,
+              message: `ErrandsApp Update: Your runner has submitted the errand "${errand.title}" for review. Please verify completion.`
+            })
+          });
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
+    }
   }
 
   async completeErrand(errandId: string, signature: string, rating: number): Promise<void> {
-    await this.updateErrand(errandId, {
-      status: ErrandStatus.COMPLETED,
-      signature,
-      completedAt: Date.now(),
-      runnerRatingGiven: rating
-    });
+    try {
+      await this.updateErrand(errandId, {
+        status: ErrandStatus.COMPLETED,
+        signature,
+        completedAt: Date.now(),
+        runnerRatingGiven: rating
+      });
+
+      // Notify runner
+      const errand = await this.fetchErrandById(errandId);
+      if (errand && errand.runnerId) {
+        const runner = await this.fetchUserById(errand.runnerId);
+        if (runner && runner.phone) {
+          await fetch('/api/notifications/sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipient: runner.phone,
+              message: `ErrandsApp Update: The errand "${errand.title}" has been marked as completed by the requester. Great job!`
+            })
+          });
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
+    }
   }
 
   async toggleFavoriteRunner(userId: string, runnerId: string): Promise<void> {
