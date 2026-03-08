@@ -12,6 +12,7 @@
         "role": { "type": "string", "enum": ["requester", "runner", "admin", "tester"] },
         "isAdmin": { "type": "boolean" },
         "isVerified": { "type": "boolean" },
+        "phoneVerified": { "type": "boolean" },
         "rating": { "type": "number" },
         "createdAt": { "type": "number" }
       },

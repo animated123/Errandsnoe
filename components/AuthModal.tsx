@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ShoppingBag, Loader2, Phone, Mail, Key, CheckCircle } from 'lucide-react';
 import { UserRole } from '../types';
-import { formatFirebaseError } from '../services/firebaseService';
+import { formatFirebaseError, formatPhoneDisplay, normalizePhone } from '../services/firebaseService';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -119,7 +119,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
             throw new Error("Verification successful but no access token received.");
           }
         } else {
-          const user = await firebaseService.register(form.name, form.email, form.phone, form.password);
+          const user = await firebaseService.register(
+            form.name, 
+            form.email, 
+            normalizePhone(form.phone), 
+            form.password,
+            false,
+            data.phoneVerified || data.fullyVerified
+          );
           onAuthSuccess(user);
         }
         onClose();
@@ -208,17 +215,17 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
                       <input 
                         type="tel" 
                         value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
-                        placeholder="0712345678"
+                        placeholder="+254..."
                         className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-black/5"
                       />
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email Address</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{isLogin ? 'Email or Phone Number' : 'Email Address'}</label>
                       <input 
-                        type="email" 
+                        type="text" 
                         value={form.email} onChange={e => setForm({...form, email: e.target.value})}
-                        placeholder="email@example.com"
+                        placeholder={isLogin ? "email@example.com or 07..." : "email@example.com"}
                         className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-black/5"
                       />
                     </div>
@@ -354,11 +361,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
               )}
 
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email or Phone Number</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{isLogin ? 'Email or Phone Number' : 'Email Address'}</label>
                 <input 
                   type="text" required
                   value={form.email} onChange={e => setForm({...form, email: e.target.value})}
-                  placeholder="email@example.com or 07..."
+                  placeholder={isLogin ? "email@example.com or 07..." : "email@example.com"}
                   className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-black/5"
                 />
               </div>
@@ -381,19 +388,23 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
                 {loading ? <Loader2 className="animate-spin" size={20} /> : (isLogin ? 'Sign In' : 'Register')}
               </button>
 
-              <div className="mt-6 flex items-center gap-4">
-                <div className="flex-1 h-px bg-slate-100" />
-                <span className="text-[8px] font-black text-slate-300 uppercase">OR</span>
-                <div className="flex-1 h-px bg-slate-100" />
-              </div>
+              {isLogin && (
+                <>
+                  <div className="mt-6 flex items-center gap-4">
+                    <div className="flex-1 h-px bg-slate-100" />
+                    <span className="text-[8px] font-black text-slate-300 uppercase">OR</span>
+                    <div className="flex-1 h-px bg-slate-100" />
+                  </div>
 
-              <button 
-                type="button"
-                onClick={() => setUseOTP(true)}
-                className="w-full py-4 border-2 border-slate-100 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
-              >
-                <Phone size={14} /> Login with Phone (OTP)
-              </button>
+                  <button 
+                    type="button"
+                    onClick={() => setUseOTP(true)}
+                    className="w-full py-4 border-2 border-slate-100 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Phone size={14} /> Login with Phone (OTP)
+                  </button>
+                </>
+              )}
             </form>
           )}
 

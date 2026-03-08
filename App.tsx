@@ -18,7 +18,7 @@ import { GoogleGenAI } from "@google/genai";
 import { geminiService } from './services/geminiService';
 import { APIProvider, Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
 import { User, UserRole, Errand, ErrandStatus, ErrandCategory, Coordinates, Bid, AppNotification, NotificationType, ChatMessage, AppSettings, LocationSuggestion, RunnerApplication, FeaturedService, ServiceListing, LoyaltyLevel, PriceRequest, PropertyListing } from './types';
-import { firebaseService, calculateDistance, formatFirebaseError } from './services/firebaseService';
+import { firebaseService, calculateDistance, formatFirebaseError, formatPhoneDisplay, normalizePhone } from './services/firebaseService';
 import { cloudinaryService } from './services/cloudinaryService';
 import Layout from './components/Layout';
 import ErrandCard from './components/ErrandCard';
@@ -26,6 +26,7 @@ import TopProgressBar from './components/TopProgressBar';
 import LoadingSpinner from './components/LoadingSpinner';
 import BidModal from './components/BidModal';
 import AuthModal from './components/AuthModal';
+import PhoneVerificationModal from './components/PhoneVerificationModal';
 
 const callGeminiWithRetry = async (prompt: string, maxRetries = 3): Promise<string> => {
   if (typeof prompt !== 'string') return "";
@@ -1290,6 +1291,7 @@ export default function App() {
   const [profileView, setProfileView] = useState<'main' | 'edit' | 'history'>('main');
   const [proximityFilter, setProximityFilter] = useState<number | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showPhoneVerificationModal, setShowPhoneVerificationModal] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showPriceGuideModal, setShowPriceGuideModal] = useState(false);
   const [showContactUsModal, setShowContactUsModal] = useState(false);
@@ -1484,7 +1486,7 @@ export default function App() {
     setIsProcessing(true);
     setFormErrors({});
     try {
-      const u = isLogin ? await firebaseService.login(authForm.email, authForm.password) : await firebaseService.register(authForm.name, authForm.email, authForm.phone, authForm.password);
+      const u = isLogin ? await firebaseService.login(authForm.email, authForm.password) : await firebaseService.register(authForm.name, authForm.email, normalizePhone(authForm.phone), authForm.password);
       setUser(u);
       setIsDarkMode(u.theme === 'dark');
     } catch (err: any) { setFormErrors({ auth: formatFirebaseError(err) }); } finally { setIsProcessing(false); }
@@ -1541,6 +1543,12 @@ export default function App() {
     // Check suspension
     if (user.isSuspended) {
       alert(`Your account is suspended: ${user.suspensionReason}`);
+      return;
+    }
+
+    // Check phone verification
+    if (!user.phoneVerified) {
+      setShowPhoneVerificationModal(true);
       return;
     }
 
@@ -2131,6 +2139,7 @@ export default function App() {
                     user={user} 
                     onUpdate={(updates) => setUser({...user, ...updates})} 
                     onBack={() => setProfileView('main')} 
+                    onVerifyPhone={() => setShowPhoneVerificationModal(true)}
                   />
                 )}
 
@@ -2182,6 +2191,7 @@ export default function App() {
           setShowAddPropertyModal={setShowAddPropertyModal}
           setShowComparisonModal={setShowComparisonModal}
           setShowAuthModal={setShowAuthModal}
+          setShowPhoneVerificationModal={setShowPhoneVerificationModal}
         />
       )}
       {selectedFeaturedService && (
@@ -2238,6 +2248,17 @@ export default function App() {
         onAuthSuccess={(u) => setUser(u)} 
         firebaseService={firebaseService} 
       />
+
+      {showPhoneVerificationModal && user && (
+        <PhoneVerificationModal 
+          user={user}
+          onClose={() => setShowPhoneVerificationModal(false)}
+          onSuccess={async () => {
+            const updated = await firebaseService.getCurrentUser();
+            if (updated) setUser(updated);
+          }}
+        />
+      )}
     </Layout>
       </APIProvider>
     </ErrorBoundary>
@@ -2274,8 +2295,8 @@ const AuthScreen: React.FC<any> = ({ appSettings, isLogin, setIsLogin, authForm,
             </>
           )}
           <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email or Phone <span className="text-red-500">*</span></label>
-            <input type="text" placeholder="email@example.com or 07..." value={authForm.email} onChange={e => setAuthForm({...authForm, email: e.target.value})} className="w-full p-4 brand-input rounded-2xl font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500/20" required />
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{isLogin ? 'Email or Phone' : 'Email Address'} <span className="text-red-500">*</span></label>
+            <input type="text" placeholder={isLogin ? "email@example.com or 07..." : "email@example.com"} value={authForm.email} onChange={e => setAuthForm({...authForm, email: e.target.value})} className="w-full p-4 brand-input rounded-2xl font-bold text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500/20" required />
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Password <span className="text-red-500">*</span></label>
@@ -2713,7 +2734,7 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Runners</h3>
                 <div className="space-y-3">
                   {stats.topRunners?.map((r: any, i: number) => (
-                    <div key={r.id} className="flex items-center justify-between">
+                    <div key={`${r.id}-${i}`} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black text-slate-300">#{i+1}</span>
                         <p className="text-xs font-black text-slate-900">{r.name}</p>
@@ -2728,7 +2749,7 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Requesters</h3>
                 <div className="space-y-3">
                   {stats.topRequesters?.map((r: any, i: number) => (
-                    <div key={r.id} className="flex items-center justify-between">
+                    <div key={`${r.id}-${i}`} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black text-slate-300">#{i+1}</span>
                         <p className="text-xs font-black text-slate-900">{r.name}</p>
@@ -2753,7 +2774,7 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className="font-black text-slate-900">{app.fullName}</h3>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{app.categoryApplied} • {app.phone}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{app.categoryApplied} • {formatPhoneDisplay(app.phone)}</p>
                   </div>
                   <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-lg border ${app.status === 'pending' ? 'bg-amber-50 text-amber-600 border-amber-100' : app.status === 'approved' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
                     {app.status}
@@ -2801,7 +2822,7 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
                   </div>
                   <div>
                     <h4 className="font-black text-slate-900 text-sm">{u.name}</h4>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{u.email} • {u.phone || 'No Phone'}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{u.email} • {formatPhoneDisplay(u.phone)}</p>
                     <div className="flex gap-2 mt-1">
                       <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded-md ${u.isAdmin ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>{u.isAdmin ? 'Admin' : u.role}</span>
                       {u.isVerified && <span className="text-[7px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-600">Verified</span>}
@@ -3935,7 +3956,7 @@ const PropertyComparisonModal: React.FC<{ listings: PropertyListing[], onClose: 
   );
 };
 
-const ProfileEditor: React.FC<{ user: User, onUpdate: (updates: Partial<User>) => void, onBack: () => void }> = ({ user, onUpdate, onBack }) => {
+const ProfileEditor: React.FC<{ user: User, onUpdate: (updates: Partial<User>) => void, onBack: () => void, onVerifyPhone: () => void }> = ({ user, onUpdate, onBack, onVerifyPhone }) => {
   const [formData, setFormData] = useState({
     name: user.name,
     phone: user.phone || '',
@@ -3968,7 +3989,7 @@ const ProfileEditor: React.FC<{ user: User, onUpdate: (updates: Partial<User>) =
       alert("Profile updated successfully!");
       onBack();
     } catch (e) {
-      alert("Failed to update profile.");
+      alert(formatFirebaseError(e));
     } finally {
       setIsSaving(false);
     }
@@ -4033,10 +4054,26 @@ const ProfileEditor: React.FC<{ user: User, onUpdate: (updates: Partial<User>) =
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Phone Number {isPhoneDisabled && '(Locked)'}</label>
+          <div className="flex items-center justify-between ml-1">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Phone Number {isPhoneDisabled && '(Locked)'}</label>
+            {user.phone && !user.phoneVerified && (
+              <button 
+                type="button"
+                onClick={onVerifyPhone}
+                className="text-[9px] font-black text-indigo-600 uppercase tracking-widest hover:underline"
+              >
+                Verify Now
+              </button>
+            )}
+            {user.phoneVerified && (
+              <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1">
+                <ShieldCheck size={10} /> Verified
+              </span>
+            )}
+          </div>
           <input 
             type="tel" 
-            value={formData.phone} 
+            value={isPhoneDisabled ? formatPhoneDisplay(formData.phone) : formData.phone} 
             onChange={e => setFormData({...formData, phone: e.target.value})} 
             className={`w-full p-4 rounded-2xl font-bold outline-none ${isPhoneDisabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : 'brand-input text-black'}`} 
             disabled={isPhoneDisabled}
@@ -4141,7 +4178,8 @@ const TaskHistory: React.FC<{ user: User, onBack: () => void, onSelectErrand: (e
 const ErrandDetailScreen: React.FC<any> = ({ 
   selectedErrand, setSelectedErrand, user, setUser, refresh, 
   onRunnerComplete, onCompleteErrand, loading,
-  setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal
+  setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal,
+  setShowPhoneVerificationModal
 }) => {
   if (!user) return null;
   
@@ -4270,6 +4308,12 @@ const ErrandDetailScreen: React.FC<any> = ({
     // Check suspension
     if (user.isSuspended) {
       alert(`Your account is suspended: ${user.suspensionReason}`);
+      return;
+    }
+
+    // Check phone verification
+    if (!user.phoneVerified) {
+      setShowPhoneVerificationModal(true);
       return;
     }
 
@@ -4783,7 +4827,7 @@ const ErrandDetailScreen: React.FC<any> = ({
                     ) : (
                       <div className="grid grid-cols-1 gap-3">
                         {selectedErrand.bids.map((b: any) => (
-                          <div key={b.runnerId} className="bg-white border border-slate-100 p-4 rounded-2xl flex items-center justify-between shadow-sm">
+                          <div key={`${b.runnerId}-${b.timestamp}`} className="bg-white border border-slate-100 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                             <div className="flex items-center gap-3">
                               <img src={`https://ui-avatars.com/api/?name=${b.runnerName}&background=000&color=fff`} className="w-10 h-10 rounded-xl" />
                               <div>

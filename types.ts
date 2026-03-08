@@ -230,6 +230,7 @@ export interface User {
   runnerCategory?: ErrandCategory;
   isAdmin?: boolean;
   isVerified: boolean;
+  phoneVerified?: boolean;
   rating: number;
   ratingCount: number;
   createdAt: number;

@@ -50,16 +50,24 @@ const fetchWithTimeout = async (url: string, options: any, timeout = 5000) => {
   }
 };
 
+const normalizePhone = (phone: string) => {
+  let normalized = phone.replace(/\D/g, '');
+  if (normalized.startsWith('254')) {
+    normalized = normalized.substring(3);
+  }
+  if (normalized.startsWith('0')) {
+    normalized = normalized.substring(1);
+  }
+  return '254' + normalized;
+};
+
 const sendSMS = async (recipient: string, message: string) => {
   if (!process.env.TALKSASA_TOKEN) {
     console.warn('TALKSASA_TOKEN not configured, skipping SMS');
     return;
   }
 
-  // Normalize phone number
-  let normalizedPhone = recipient.replace(/\D/g, '');
-  if (normalizedPhone.startsWith('0')) normalizedPhone = '254' + normalizedPhone.substring(1);
-  else if (normalizedPhone.startsWith('7') || normalizedPhone.startsWith('1')) normalizedPhone = '254' + normalizedPhone;
+  const normalizedPhone = normalizePhone(recipient);
 
   try {
     await fetchWithTimeout('https://bulksms.talksasa.com/api/v3/sms/send', {
@@ -191,14 +199,7 @@ export async function createServer() {
     if (type === 'email' && !email) return res.status(400).json({ error: 'Email is required' });
     if (type === 'both' && (!phone || !email)) return res.status(400).json({ error: 'Phone and email are required' });
 
-    // Normalize phone number if provided
-    let normalizedPhone = '';
-    if (phone) {
-      normalizedPhone = phone.replace(/\D/g, '');
-      if (normalizedPhone.startsWith('0')) normalizedPhone = '254' + normalizedPhone.substring(1);
-      else if (normalizedPhone.startsWith('7') || normalizedPhone.startsWith('1')) normalizedPhone = '254' + normalizedPhone;
-    }
-
+    const normalizedPhone = phone ? normalizePhone(phone) : '';
     const key = type === 'phone' ? normalizedPhone : email;
     const existing = verificationStore.get(key);
 
@@ -222,24 +223,6 @@ export async function createServer() {
 
     try {
       const promises = [];
-
-      // Helper for fetch with timeout
-      const fetchWithTimeout = async (url: string, options: any, timeout = 5000) => {
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), timeout);
-        try {
-          const response = await fetch(url, { ...options, signal: controller.signal });
-          clearTimeout(id);
-          if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`HTTP ${response.status}: ${text}`);
-          }
-          return response;
-        } catch (error) {
-          clearTimeout(id);
-          throw error;
-        }
-      };
 
       // Send SMS via TalkSasa
       if (type === 'phone' || type === 'both') {
@@ -304,13 +287,7 @@ export async function createServer() {
   app.post('/api/auth/verify/step', async (req, res) => {
     const { phone, email, smsCode, emailCode, type } = req.body;
     
-    let normalizedPhone = '';
-    if (phone) {
-      normalizedPhone = phone.replace(/\D/g, '');
-      if (normalizedPhone.startsWith('0')) normalizedPhone = '254' + normalizedPhone.substring(1);
-      else if (normalizedPhone.startsWith('7') || normalizedPhone.startsWith('1')) normalizedPhone = '254' + normalizedPhone;
-    }
-
+    const normalizedPhone = phone ? normalizePhone(phone) : '';
     const key = type === 'phone' ? normalizedPhone : email;
     const stored = verificationStore.get(key);
 
@@ -365,10 +342,12 @@ export async function createServer() {
 
         // If user exists, create custom token
         if (uid) {
+          await adminDb.collection('users').doc(uid).update({ phoneVerified: true });
           const customToken = await adminAuth.createCustomToken(uid);
           return res.json({ 
             success: true, 
             fullyVerified: true, 
+            phoneVerified: true,
             customToken,
             message: 'Identity fully verified' 
           });

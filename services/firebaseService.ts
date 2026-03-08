@@ -92,6 +92,26 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+export const normalizePhone = (phone: string) => {
+  let normalized = phone.replace(/\D/g, '');
+  if (normalized.startsWith('254')) {
+    normalized = normalized.substring(3);
+  }
+  if (normalized.startsWith('0')) {
+    normalized = normalized.substring(1);
+  }
+  return '254' + normalized;
+};
+
+export const formatPhoneDisplay = (phone: string | undefined) => {
+  if (!phone) return 'No Phone';
+  let normalized = phone.replace(/\D/g, '');
+  if (normalized.startsWith('254')) {
+    return `+${normalized}`;
+  }
+  return phone;
+};
+
 class FirebaseService {
   // Auth
   subscribeToAuth(callback: (user: User | null) => void) {
@@ -121,8 +141,16 @@ class FirebaseService {
     });
   }
 
-  async login(email: string, password: string): Promise<User> {
+  async login(emailOrPhone: string, password: string): Promise<User> {
     try {
+      let email = emailOrPhone;
+      if (!emailOrPhone.includes('@')) {
+        const normalized = normalizePhone(emailOrPhone);
+        const user = await this.fetchUserByPhone(normalized);
+        if (user) {
+          email = user.email;
+        }
+      }
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       if (!userDoc.exists()) throw new Error("User data not found");
@@ -163,12 +191,18 @@ class FirebaseService {
     }
   }
 
-  async register(name: string, email: string, phone: string, password: string, isAdmin: boolean = false): Promise<User> {
+  async register(name: string, email: string, phone: string, password: string, isAdmin: boolean = false, phoneVerified: boolean = false): Promise<User> {
+    const normalized = normalizePhone(phone);
+    const existingUser = await this.fetchUserByPhone(normalized);
+    if (existingUser) {
+      throw new Error("Phone number already registered. Please login.");
+    }
+
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const id = userCredential.user.uid;
     const newUser: User = {
-      id, email, phone, name, role: UserRole.REQUESTER, isAdmin,
-      isVerified: false, rating: 5, ratingCount: 0, createdAt: Date.now(),
+      id, email, phone: normalized, name, role: UserRole.REQUESTER, isAdmin,
+      isVerified: false, phoneVerified, rating: 5, ratingCount: 0, createdAt: Date.now(),
       walletBalance: 0, balanceOnHold: 0, balanceWithdrawn: 0,
       errandsCompleted: 0, isOnline: true,
       notificationSettings: { email: true, push: true, sms: false },
@@ -211,9 +245,20 @@ class FirebaseService {
   // User Settings
   async updateUserSettings(userId: string, updates: Partial<User>): Promise<void> {
     try {
+      if (updates.phone) {
+        const normalized = normalizePhone(updates.phone);
+        const existingUser = await this.fetchUserByPhone(normalized);
+        if (existingUser && existingUser.id !== userId) {
+          throw new Error("Phone number already in use by another account.");
+        }
+        updates.phone = normalized;
+      }
       await updateDoc(doc(db, 'users', userId), updates);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+      if (error instanceof Error && error.message.includes('permission')) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+      }
+      throw error;
     }
   }
 
@@ -328,6 +373,20 @@ class FirebaseService {
       await updateDoc(doc(db, 'errands', errandId), {
         bids: arrayUnion(bid)
       });
+
+      // Notify requester about new bid
+      const errand = await this.fetchErrandById(errandId);
+      if (errand) {
+        const requester = await this.fetchUserById(errand.requesterId);
+        if (requester && requester.phone) {
+          const message = `Dear ${requester.name}, a new bid of Ksh ${price} has been placed on your errand "${errand.title}" by ${runnerName}. Check the app to review.`;
+          await fetch('/api/notifications/sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient: requester.phone, message })
+          }).catch(e => console.error("SMS failed", e));
+        }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
     }
@@ -342,19 +401,30 @@ class FirebaseService {
         jobStartedAt: Date.now()
       });
 
-      // Send SMS notification to requester if runner accepted automatically
       const errand = await this.fetchErrandById(errandId);
-      if (errand && errand.requesterId !== auth.currentUser?.uid) {
-        const requester = await this.fetchUserById(errand.requesterId);
-        if (requester && requester.phone) {
+      if (errand) {
+        // Notify runner that their bid was approved
+        const runner = await this.fetchUserById(runnerId);
+        if (runner && runner.phone) {
+          const message = `Dear ${runner.name}, your bid for errand "${errand.title}" has been approved! You can now start the task.`;
           await fetch('/api/notifications/sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              recipient: requester.phone,
-              message: `ErrandsApp Update: Your errand "${errand.title}" is now active!\nRunner: ${runnerName}\nEstimated Completion: ${eta}`
-            })
-          });
+            body: JSON.stringify({ recipient: runner.phone, message })
+          }).catch(e => console.error("SMS failed", e));
+        }
+
+        // Notify requester if they didn't do it themselves (e.g. auto-accept or admin action)
+        if (errand.requesterId !== auth.currentUser?.uid) {
+          const requester = await this.fetchUserById(errand.requesterId);
+          if (requester && requester.phone) {
+            const message = `Dear ${requester.name}, your errand "${errand.title}" is now active! Runner: ${runnerName}.`;
+            await fetch('/api/notifications/sms', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ recipient: requester.phone, message })
+            }).catch(e => console.error("SMS failed", e));
+          }
         }
       }
     } catch (error) {
@@ -461,6 +531,19 @@ class FirebaseService {
   }
 
   // Admin
+  async fetchUserByPhone(phone: string): Promise<User | null> {
+    try {
+      const q = query(collection(db, 'users'), where('phone', '==', phone), limit(1));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) return null;
+      const d = snapshot.docs[0];
+      return { id: d.id, ...d.data() } as User;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'users');
+      return null;
+    }
+  }
+
   async fetchUserById(userId: string): Promise<User | null> {
     try {
       const docSnap = await getDoc(doc(db, 'users', userId));
@@ -643,14 +726,12 @@ class FirebaseService {
       if (errand && errand.requesterId) {
         const requester = await this.fetchUserById(errand.requesterId);
         if (requester && requester.phone) {
+          const message = `Dear ${requester.name}, the runner has submitted errand "${errand.title}" for your review. Please check and complete the task.`;
           await fetch('/api/notifications/sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              recipient: requester.phone,
-              message: `ErrandsApp Update: Your runner has submitted the errand "${errand.title}" for review. Please verify completion.`
-            })
-          });
+            body: JSON.stringify({ recipient: requester.phone, message })
+          }).catch(e => console.error("SMS failed", e));
         }
       }
     } catch (error) {
@@ -660,6 +741,11 @@ class FirebaseService {
 
   async completeErrand(errandId: string, signature: string, rating: number): Promise<void> {
     try {
+      const errand = await this.fetchErrandById(errandId);
+      if (!errand || !errand.runnerId) return;
+
+      const amount = errand.acceptedPrice || errand.budget || 0;
+
       await this.updateErrand(errandId, {
         status: ErrandStatus.COMPLETED,
         signature,
@@ -667,19 +753,24 @@ class FirebaseService {
         runnerRatingGiven: rating
       });
 
-      // Notify runner
-      const errand = await this.fetchErrandById(errandId);
-      if (errand && errand.runnerId) {
-        const runner = await this.fetchUserById(errand.runnerId);
-        if (runner && runner.phone) {
+      // Update runner balance and notify
+      const runner = await this.fetchUserById(errand.runnerId);
+      if (runner) {
+        const newBalance = (runner.walletBalance || 0) + amount;
+        const newCompleted = (runner.errandsCompleted || 0) + 1;
+        
+        await this.adminUpdateUser(runner.id, { 
+          walletBalance: newBalance,
+          errandsCompleted: newCompleted
+        });
+
+        if (runner.phone) {
+          const message = `Dear ${runner.name}, your review for errand "${errand.title}" has been updated. Ksh ${amount} has been deposited to your errandsapp account. Your current balance is Ksh ${newBalance}.`;
           await fetch('/api/notifications/sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              recipient: runner.phone,
-              message: `ErrandsApp Update: The errand "${errand.title}" has been marked as completed by the requester. Great job!`
-            })
-          });
+            body: JSON.stringify({ recipient: runner.phone, message })
+          }).catch(e => console.error("SMS failed", e));
         }
       }
     } catch (error) {
