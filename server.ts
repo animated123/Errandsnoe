@@ -324,12 +324,16 @@ export async function createServer() {
       verificationStore.set(key, updated);
 
       const isFullyVerified = updated.phoneVerified && updated.emailVerified;
+      const isCurrentTypeVerified = type === 'phone' ? updated.phoneVerified : (type === 'email' ? updated.emailVerified : isFullyVerified);
 
-      if (isFullyVerified) {
-        verificationStore.delete(key);
+      if (isCurrentTypeVerified) {
+        // If we are fully verified, or if we only requested one type and it's verified, we can proceed
+        if (isFullyVerified) {
+          verificationStore.delete(key);
+        }
         
         // If userId is provided (authenticated user verifying phone)
-        if (userId) {
+        if (userId && type === 'phone') {
           // Check if phone is already used by ANOTHER user
           if (normalizedPhone) {
             const existingUsers = await adminDb.collection('users')
@@ -350,50 +354,52 @@ export async function createServer() {
           
           return res.json({ 
             success: true, 
-            fullyVerified: true, 
+            fullyVerified: isFullyVerified, 
             phoneVerified: true,
             message: 'Phone verified successfully' 
           });
         }
 
         // Existing logic for login/registration flow (no userId provided)
-        let uid: string | null = null;
-        
-        // Try finding by phone
-        if (normalizedPhone) {
-          try {
-            const userRecord = await adminAuth.getUserByPhoneNumber('+' + normalizedPhone);
-            uid = userRecord.uid;
-          } catch (e) {}
-        }
-        
-        // Try finding by email if phone failed
-        if (!uid && email) {
-          try {
-            const userRecord = await adminAuth.getUserByEmail(email);
-            uid = userRecord.uid;
-          } catch (e) {}
-        }
+        if (isFullyVerified) {
+          let uid: string | null = null;
+          
+          // Try finding by phone
+          if (normalizedPhone) {
+            try {
+              const userRecord = await adminAuth.getUserByPhoneNumber('+' + normalizedPhone);
+              uid = userRecord.uid;
+            } catch (e) {}
+          }
+          
+          // Try finding by email if phone failed
+          if (!uid && email) {
+            try {
+              const userRecord = await adminAuth.getUserByEmail(email);
+              uid = userRecord.uid;
+            } catch (e) {}
+          }
 
-        // If user exists, create custom token
-        if (uid) {
-          await adminDb.collection('users').doc(uid).update({ phoneVerified: true });
-          const customToken = await adminAuth.createCustomToken(uid);
-          return res.json({ 
-            success: true, 
-            fullyVerified: true, 
-            phoneVerified: true,
-            customToken,
-            message: 'Identity fully verified' 
-          });
-        } else {
-          // User doesn't exist, they need to register
-          return res.json({ 
-            success: true, 
-            fullyVerified: true, 
-            needsRegistration: true,
-            message: 'Identity verified, please complete registration' 
-          });
+          // If user exists, create custom token
+          if (uid) {
+            await adminDb.collection('users').doc(uid).update({ phoneVerified: true });
+            const customToken = await adminAuth.createCustomToken(uid);
+            return res.json({ 
+              success: true, 
+              fullyVerified: true, 
+              phoneVerified: true,
+              customToken,
+              message: 'Identity fully verified' 
+            });
+          } else {
+            // User doesn't exist, they need to register
+            return res.json({ 
+              success: true, 
+              fullyVerified: true, 
+              needsRegistration: true,
+              message: 'Identity verified, please complete registration' 
+            });
+          }
         }
       }
 
