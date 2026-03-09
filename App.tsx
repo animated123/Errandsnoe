@@ -12,7 +12,7 @@ import {
   ChevronRight, Volume2, CheckCircle2, AlertTriangle, Droplets, Wifi, Shield, Car, ShieldCheck, Heart, Edit2, UserMinus,
   Settings, Palette, ImageIcon as LucideImageIcon, Save, Upload, Download,
   HelpCircle, PlusCircle, Filter, UserCircle,
-  Mic, Square, Play, Pause, ChevronUp, ChevronDown
+  Mic, Square, Play, Pause, ChevronUp, ChevronDown, RefreshCw
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { geminiService } from './services/geminiService';
@@ -380,7 +380,7 @@ const MapLocationPicker: React.FC<{
   );
 };
 
-const CreateScreen: React.FC<any> = ({ errandForm, setErrandForm, postErrand, loading, errors }) => {
+const CreateScreen: React.FC<any> = ({ user, errandForm, setErrandForm, postErrand, loading, errors }) => {
   const [step, setStep] = useState(1);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -820,6 +820,19 @@ const CreateScreen: React.FC<any> = ({ errandForm, setErrandForm, postErrand, lo
 
   return (
     <div className="max-w-2xl mx-auto pb-10">
+      {user && !user.phoneVerified && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-start gap-3 animate-in fade-in zoom-in-95">
+          <div className="p-2 bg-amber-100 rounded-xl text-amber-600 mt-0.5">
+            <AlertTriangle size={16} />
+          </div>
+          <div>
+            <h3 className="text-xs font-black text-amber-800 uppercase tracking-wide mb-1">Phone Not Authenticated</h3>
+            <p className="text-[10px] font-medium text-amber-700 leading-relaxed">
+              Your phone number is not verified. You can still post errands, but verifying helps runners trust you.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
@@ -1291,6 +1304,7 @@ export default function App() {
   const [profileView, setProfileView] = useState<'main' | 'edit' | 'history'>('main');
   const [proximityFilter, setProximityFilter] = useState<number | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
   const [showPhoneVerificationModal, setShowPhoneVerificationModal] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showPriceGuideModal, setShowPriceGuideModal] = useState(false);
@@ -1304,6 +1318,8 @@ export default function App() {
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [smartInput, setSmartInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<UserRole | 'all'>('all');
 
   const ALL_SUGGESTIONS = [
     "Mama Fua (Laundry)",
@@ -1546,10 +1562,9 @@ export default function App() {
       return;
     }
 
-    // Check phone verification
+    // Check phone verification (Non-blocking warning)
     if (!user.phoneVerified) {
-      setShowPhoneVerificationModal(true);
-      return;
+      // We'll just show a warning in the UI instead of blocking
     }
 
     const error = validateForm();
@@ -1658,6 +1673,7 @@ export default function App() {
 
   const protectedAction = (action: () => void) => {
     if (!user) {
+      setAuthModalMode('login');
       setShowAuthModal(true);
       return;
     }
@@ -1853,7 +1869,7 @@ export default function App() {
                 <ShieldAlert size={48} className="mx-auto mb-4 text-slate-200" />
                 <h3 className="text-lg font-black text-slate-900 mb-2">Login Required</h3>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Sign in to view your tasks</p>
-                <button onClick={() => setShowAuthModal(true)} className="px-10 py-4 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Sign In Now</button>
+                <button onClick={() => { setAuthModalMode('login'); setShowAuthModal(true); }} className="px-10 py-4 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Sign In Now</button>
               </div>
             ) : (
               <>
@@ -1900,6 +1916,7 @@ export default function App() {
         )}
         {activeTab === 'create' && (
           <CreateScreen 
+            user={user}
             errandForm={errandForm} 
             setErrandForm={setErrandForm} 
             postErrand={(e: any) => protectedAction(() => postErrand(e))} 
@@ -1944,18 +1961,50 @@ export default function App() {
             </div>
           </div>
         )}
-        {activeTab === 'admin' && user && <AdminPanel user={user} settings={appSettings} stats={stats} />}
+        {activeTab === 'admin' && user && <AdminPanel 
+          user={user} 
+          settings={appSettings} 
+          stats={stats} 
+          setStats={setStats}
+          userSearchQuery={userSearchQuery}
+          setUserSearchQuery={setUserSearchQuery}
+          userRoleFilter={userRoleFilter}
+          setUserRoleFilter={setUserRoleFilter}
+        />}
         {activeTab === 'active' && (
            <div className="max-w-xl mx-auto pb-10 -mt-2 md:-mt-4">
             {!user ? (
               <div className="bg-white rounded-[2.5rem] p-12 border border-slate-100 shadow-sm text-center animate-in fade-in zoom-in-95">
-                <div className="w-24 h-24 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto mb-8 relative overflow-hidden">
+                <div 
+                  onClick={() => {
+                    setAuthModalMode('register');
+                    setShowAuthModal(true);
+                  }}
+                  className="w-24 h-24 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto mb-8 relative overflow-hidden cursor-pointer hover:scale-105 transition-transform active:scale-95"
+                >
                    <div className="absolute inset-0 bg-gradient-to-tr from-slate-100 to-transparent opacity-50" />
                    <UserCircle size={48} className="text-slate-200 relative z-10" />
                 </div>
                 <h2 className="text-2xl font-black text-slate-900 mb-2">My Profile</h2>
-                <p className="text-sm font-bold text-slate-400 mb-10">Login to see your info</p>
-                <button onClick={() => setShowAuthModal(true)} className="w-full py-5 bg-[#00aeef] text-white rounded-[2rem] font-black uppercase text-sm tracking-widest shadow-xl active:scale-95 transition-all">Login</button>
+                <p className="text-sm font-bold text-slate-400 mb-10">Join us to manage your profile</p>
+                <button 
+                  onClick={() => {
+                    setAuthModalMode('register');
+                    setShowAuthModal(true);
+                  }} 
+                  className="w-full py-5 bg-[#00aeef] text-white rounded-[2rem] font-black uppercase text-sm tracking-widest shadow-xl active:scale-95 transition-all"
+                >
+                  Sign Up
+                </button>
+                <button 
+                  onClick={() => {
+                    setAuthModalMode('login');
+                    setShowAuthModal(true);
+                  }}
+                  className="mt-6 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  Already have an account? Login
+                </button>
                 
                 <div className="mt-12 space-y-1">
                   <ProfileMenuItem icon={<Globe size={18} />} label="Change Language" onClick={() => setShowLanguageModal(true)} />
@@ -2192,6 +2241,7 @@ export default function App() {
           setShowComparisonModal={setShowComparisonModal}
           setShowAuthModal={setShowAuthModal}
           setShowPhoneVerificationModal={setShowPhoneVerificationModal}
+          setAuthModalMode={setAuthModalMode}
         />
       )}
       {selectedFeaturedService && (
@@ -2247,6 +2297,7 @@ export default function App() {
         onClose={() => setShowAuthModal(false)} 
         onAuthSuccess={(u) => setUser(u)} 
         firebaseService={firebaseService} 
+        initialMode={authModalMode}
       />
 
       {showPhoneVerificationModal && user && (
@@ -2500,7 +2551,16 @@ const ProfileMenuItem: React.FC<{ icon: React.ReactNode, label: string, onClick?
   </button>
 );
 
-const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUsers: number, totalTasks: number, onlineUsers: number } }> = ({ user, settings, stats }) => {
+const AdminPanel: React.FC<{ 
+  user: User; 
+  settings: AppSettings; 
+  stats: any; 
+  setStats: (stats: any) => void;
+  userSearchQuery: string;
+  setUserSearchQuery: (q: string) => void;
+  userRoleFilter: UserRole | 'all';
+  setUserRoleFilter: (r: UserRole | 'all') => void;
+}> = ({ user, settings, stats, setStats, userSearchQuery, setUserSearchQuery, userRoleFilter, setUserRoleFilter }) => {
   const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
   const [logoUrl, setLogoUrl] = useState(settings.logoUrl || '');
   const [iconUrl, setIconUrl] = useState(settings.iconUrl || '');
@@ -2668,12 +2728,21 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
       {activeAdminTab === 'stats' && (
         <div className="space-y-6 animate-in fade-in">
           <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm space-y-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-black text-white rounded-xl"><ShieldAlert size={24} /></div>
-              <div>
-                <h2 className="text-lg font-black text-slate-900">Admin Dashboard</h2>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">System Performance Metrics</p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-black text-white rounded-xl"><ShieldAlert size={24} /></div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">Admin Dashboard</h2>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">System Performance Metrics</p>
+                </div>
               </div>
+              <button 
+                onClick={() => firebaseService.getAppStats().then(setStats)}
+                className="p-3 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100 transition-all"
+                title="Refresh Stats"
+              >
+                <RefreshCw size={18} />
+              </button>
             </div>
             
             <div className="grid grid-cols-3 gap-3">
@@ -2807,13 +2876,41 @@ const AdminPanel: React.FC<{ user: User; settings: AppSettings; stats: { totalUs
 
       {activeAdminTab === 'users' && (
         <div className="space-y-4 animate-in fade-in">
-          <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm flex justify-between items-center">
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">User Management</h3>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{dbUsers.length} Total Users</p>
+          <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">User Management</h3>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{dbUsers.length} Total Users</p>
+            </div>
+            <div className="flex flex-col md:flex-row gap-4">
+              <input 
+                type="text" 
+                placeholder="Search by name, email, or phone..." 
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                className="flex-1 p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
+              />
+              <select 
+                value={userRoleFilter} 
+                onChange={(e) => setUserRoleFilter(e.target.value as any)}
+                className="p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
+              >
+                <option value="all">All Roles</option>
+                {Object.values(UserRole).map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+              </select>
+            </div>
           </div>
           
           <div className="grid grid-cols-1 gap-3">
-            {dbUsers.map(u => (
+            {dbUsers
+              .filter(u => {
+                const q = userSearchQuery.toLowerCase();
+                const matchesSearch = (u.name || '').toLowerCase().includes(q) || 
+                                      (u.email || '').toLowerCase().includes(q) ||
+                                      (u.phone || '').includes(q);
+                const matchesRole = userRoleFilter === 'all' || u.role === userRoleFilter;
+                return matchesSearch && matchesRole;
+              })
+              .map(u => (
               <div key={u.id} className="bg-white rounded-[2rem] p-5 border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <div className="relative">
@@ -3267,7 +3364,7 @@ const SupportChatView: React.FC<{ user: User, targetUserId?: string, isAdmin?: b
           </div>
         ) : (
           chat.messages.map((m: any, i: number) => (
-            <div key={m.id || i} className={`flex flex-col ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'items-end' : 'items-start'}`}>
+            <div key={m.id || `msg-${i}`} className={`flex flex-col ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[80%] p-4 rounded-2xl text-xs font-medium leading-relaxed ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'bg-indigo-600 text-white rounded-tr-none shadow-lg shadow-indigo-100' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
                 {m.text}
               </div>
@@ -4179,7 +4276,7 @@ const ErrandDetailScreen: React.FC<any> = ({
   selectedErrand, setSelectedErrand, user, setUser, refresh, 
   onRunnerComplete, onCompleteErrand, loading,
   setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal,
-  setShowPhoneVerificationModal
+  setShowPhoneVerificationModal, setAuthModalMode
 }) => {
   if (!user) return null;
   
@@ -4296,6 +4393,7 @@ const ErrandDetailScreen: React.FC<any> = ({
 
   const handleAcceptBudget = () => {
     if (!user) {
+      setAuthModalMode('login');
       setShowAuthModal(true);
       return;
     }

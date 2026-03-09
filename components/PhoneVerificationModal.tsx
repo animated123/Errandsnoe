@@ -47,7 +47,8 @@ const PhoneVerificationModal: React.FC<PhoneVerificationModalProps> = ({ user, o
         body: JSON.stringify({ 
           phone: normalized, 
           smsCode: otp, 
-          type: 'phone' 
+          type: 'phone',
+          userId: user.id 
         })
       });
       const data = await response.json();

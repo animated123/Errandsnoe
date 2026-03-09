@@ -212,6 +212,8 @@ export async function createServer() {
     const emailCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
 
+    console.log(`Generated codes for ${key}: SMS=${smsCode}, Email=${emailCode}`);
+
     verificationStore.set(key, {
       phoneCode: smsCode,
       phoneVerified: (type === 'email') ? true : (existing?.phoneVerified || false),
@@ -285,43 +287,76 @@ export async function createServer() {
   });
 
   app.post('/api/auth/verify/step', async (req, res) => {
-    const { phone, email, smsCode, emailCode, type } = req.body;
-    
-    const normalizedPhone = phone ? normalizePhone(phone) : '';
-    const key = type === 'phone' ? normalizedPhone : email;
-    const stored = verificationStore.get(key);
-
-    if (!stored) return res.status(400).json({ error: 'No verification session found' });
-    if (Date.now() > stored.expiresAt) return res.status(400).json({ error: 'Verification code has expired' });
-
-    let updated = { ...stored };
-    let match = false;
-
-    if (type === 'phone' && smsCode === stored.phoneCode) {
-      updated.phoneVerified = true;
-      match = true;
-    }
-
-    if (type === 'email' && emailCode === stored.emailCode) {
-      updated.emailVerified = true;
-      match = true;
-    }
-
-    if (type === 'both') {
-      if (smsCode && smsCode === stored.phoneCode) updated.phoneVerified = true;
-      if (emailCode && emailCode === stored.emailCode) updated.emailVerified = true;
-      if ((smsCode && smsCode === stored.phoneCode) || (emailCode && emailCode === stored.emailCode)) match = true;
-    }
-
-    verificationStore.set(key, updated);
-
-    const isFullyVerified = updated.phoneVerified && updated.emailVerified;
-
-    if (isFullyVerified) {
-      verificationStore.delete(key);
+    try {
+      const { phone, email, smsCode, emailCode, type, userId } = req.body;
       
-      try {
-        // Find or create user to get UID for custom token
+      const normalizedPhone = phone ? normalizePhone(phone) : '';
+      const key = type === 'phone' ? normalizedPhone : email;
+      const stored = verificationStore.get(key);
+
+      const cleanSmsCode = smsCode ? String(smsCode).trim() : undefined;
+      const cleanEmailCode = emailCode ? String(emailCode).trim() : undefined;
+
+      console.log(`Verify step for ${key}: received SMS=${cleanSmsCode}, stored SMS=${stored?.phoneCode}, userId=${userId}`);
+
+      if (!stored) return res.status(400).json({ error: 'No verification session found' });
+      if (Date.now() > stored.expiresAt) return res.status(400).json({ error: 'Verification code has expired' });
+
+      let updated = { ...stored };
+      let match = false;
+
+      if (type === 'phone' && cleanSmsCode === stored.phoneCode) {
+        updated.phoneVerified = true;
+        match = true;
+      }
+
+      if (type === 'email' && cleanEmailCode === stored.emailCode) {
+        updated.emailVerified = true;
+        match = true;
+      }
+
+      if (type === 'both') {
+        if (cleanSmsCode && cleanSmsCode === stored.phoneCode) updated.phoneVerified = true;
+        if (cleanEmailCode && cleanEmailCode === stored.emailCode) updated.emailVerified = true;
+        if ((cleanSmsCode && cleanSmsCode === stored.phoneCode) || (cleanEmailCode && cleanEmailCode === stored.emailCode)) match = true;
+      }
+
+      verificationStore.set(key, updated);
+
+      const isFullyVerified = updated.phoneVerified && updated.emailVerified;
+
+      if (isFullyVerified) {
+        verificationStore.delete(key);
+        
+        // If userId is provided (authenticated user verifying phone)
+        if (userId) {
+          // Check if phone is already used by ANOTHER user
+          if (normalizedPhone) {
+            const existingUsers = await adminDb.collection('users')
+              .where('phone', '==', normalizedPhone)
+              .get();
+            
+            const otherUser = existingUsers.docs.find(d => d.id !== userId);
+            if (otherUser) {
+              return res.status(400).json({ error: 'Phone number already linked to another account' });
+            }
+          }
+
+          // Update the user
+          await adminDb.collection('users').doc(userId).update({ 
+            phoneVerified: true,
+            phone: normalizedPhone // Ensure phone is synced
+          });
+          
+          return res.json({ 
+            success: true, 
+            fullyVerified: true, 
+            phoneVerified: true,
+            message: 'Phone verified successfully' 
+          });
+        }
+
+        // Existing logic for login/registration flow (no userId provided)
         let uid: string | null = null;
         
         // Try finding by phone
@@ -360,19 +395,19 @@ export async function createServer() {
             message: 'Identity verified, please complete registration' 
           });
         }
-      } catch (error) {
-        console.error('Custom token error:', error);
-        return res.status(500).json({ error: 'Failed to generate access token' });
       }
-    }
 
-    res.json({ 
-      success: true, 
-      fullyVerified: false, 
-      phoneVerified: updated.phoneVerified,
-      emailVerified: updated.emailVerified,
-      message: match ? 'Code verified' : 'Invalid code'
-    });
+      res.json({ 
+        success: true, 
+        fullyVerified: false, 
+        phoneVerified: updated.phoneVerified,
+        emailVerified: updated.emailVerified,
+        message: match ? 'Code verified' : 'Invalid code'
+      });
+    } catch (error: any) {
+      console.error('Verification error:', error);
+      return res.status(500).json({ error: error.message || 'Failed to complete verification' });
+    }
   });
 
   // Detect production mode based on NODE_ENV or existence of dist folder

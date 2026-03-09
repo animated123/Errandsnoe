@@ -8,10 +8,11 @@ interface AuthModalProps {
   onClose: () => void;
   onAuthSuccess: (user: any) => void;
   firebaseService: any;
+  initialMode?: 'login' | 'register';
 }
 
-const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, firebaseService }) => {
-  const [isLogin, setIsLogin] = useState(true);
+const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, firebaseService, initialMode = 'login' }) => {
+  const [isLogin, setIsLogin] = useState(initialMode === 'login');
   const [useOTP, setUseOTP] = useState(false);
   const [otpType, setOtpType] = useState<'phone' | 'email'>('phone');
   const [otpStep, setOtpStep] = useState<'phone' | 'verify'>('phone');
