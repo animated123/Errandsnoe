@@ -66,10 +66,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
         if (text.includes('FUNCTION_INVOCATION_FAILED')) {
           throw new Error('The server is currently busy or encountered a temporary issue. Please try again in a few moments.');
         }
-        if (res.status === 503 || res.status === 504) {
-          throw new Error('The server is taking too long to respond. Please try again.');
+        
+        // If it looks like an HTML error page, simplify it
+        if (text.includes('<!DOCTYPE html>') || text.includes('<html')) {
+          throw new Error(`Server error (${res.status}). Please try again later.`);
         }
-        throw new Error(text || `Server error: ${res.status}`);
+
+        throw new Error(text.slice(0, 100) || `Server error: ${res.status}`);
       }
       return { success: true, message: text };
     } catch (err: any) {

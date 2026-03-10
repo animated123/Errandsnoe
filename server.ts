@@ -6,25 +6,55 @@ import admin from 'firebase-admin';
 // import { firebaseService } from './services/firebaseService'; // Removed to prevent client SDK initialization in Node
 import { Resend } from 'resend';
 import { ErrandStatus } from './types';
-import firebaseConfig from './firebase-applet-config.json';
+
+console.log('--- Server Process Starting ---');
+
+// Helper to read JSON config safely in ESM
+const readConfig = () => {
+  try {
+    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Error reading firebase-applet-config.json:', e);
+  }
+  return null;
+};
+
+const firebaseConfig = readConfig();
 
 // Initialize Resend
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: firebaseConfig.projectId,
-  });
+let adminAuth: admin.auth.Auth;
+let adminDb: admin.firestore.Firestore;
+
+try {
+  if (firebaseConfig && !admin.apps.length) {
+    admin.initializeApp({
+      projectId: firebaseConfig.projectId,
+    });
+    console.log('Firebase Admin initialized with project:', firebaseConfig.projectId);
+  } else if (!admin.apps.length) {
+    console.warn('No firebase-applet-config.json found. Firebase Admin not initialized.');
+  }
+  
+  if (admin.apps.length) {
+    adminAuth = admin.auth();
+    adminDb = admin.firestore();
+  }
+} catch (error) {
+  console.error('Firebase Admin Initialization Error:', error);
 }
-const adminAuth = admin.auth();
-const adminDb = admin.firestore();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Helper functions for server-side Firestore operations
 const fetchStaleErrands = async (beforeTimestamp: number) => {
+  if (!adminDb) return [];
   const snapshot = await adminDb.collection('errands')
     .where('status', '==', ErrandStatus.PENDING)
     .where('createdAt', '<', beforeTimestamp)
@@ -33,6 +63,7 @@ const fetchStaleErrands = async (beforeTimestamp: number) => {
 };
 
 const cancelErrand = async (id: string) => {
+  if (!adminDb) return;
   await adminDb.collection('errands').doc(id).update({ status: ErrandStatus.CANCELLED });
 };
 
@@ -101,12 +132,17 @@ export async function createServer() {
   // Google Cloud Run injects PORT. Defaulting to 3000 for AI Studio preview.
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use((req, res, next) => {
-    if (req.body !== undefined) {
-      next();
-    } else {
-      express.json()(req, res, next);
-    }
+  app.use(express.json());
+
+  // Health check for infrastructure
+  app.get('/api/ping', (req, res) => {
+    res.json({ 
+      status: 'pong', 
+      timestamp: Date.now(),
+      firebaseAdmin: !!admin.apps.length,
+      resend: !!resend,
+      talksasa: !!process.env.TALKSASA_TOKEN
+    });
   });
 
   // SMS Notification Endpoint
@@ -206,8 +242,8 @@ export async function createServer() {
   const passwordResets = new Map<string, any>();
 
   app.post('/api/auth/verify/send-package', async (req, res) => {
-    console.log('Received verification request:', req.body);
-    const { phone, email, type } = req.body; // type: 'phone' | 'email' | 'both'
+    console.log('Received verification request:', JSON.stringify(req.body));
+    const { phone, email, type } = req.body;
     if (type === 'phone' && !phone) return res.status(400).json({ error: 'Phone is required' });
     if (type === 'email' && !email) return res.status(400).json({ error: 'Email is required' });
     if (type === 'both' && (!phone || !email)) return res.status(400).json({ error: 'Phone and email are required' });
@@ -353,6 +389,8 @@ export async function createServer() {
         
         // If userId is provided (authenticated user verifying phone)
         if (userId && type === 'phone') {
+          if (!adminDb) return res.status(500).json({ error: 'Database service unavailable' });
+          
           // Check if phone is already used by ANOTHER user
           if (normalizedPhone) {
             const existingUsers = await adminDb.collection('users')
@@ -381,6 +419,8 @@ export async function createServer() {
 
         // Existing logic for login/registration flow (no userId provided)
         if (isFullyVerified) {
+          if (!adminAuth || !adminDb) return res.status(500).json({ error: 'Auth/Database service unavailable' });
+          
           let uid: string | null = null;
           
           // Try finding by phone
@@ -446,6 +486,8 @@ export async function createServer() {
 
   app.post('/api/auth/forgot-password', async (req, res) => {
     try {
+      if (!adminAuth || !adminDb) return res.status(500).json({ error: 'Auth/Database service unavailable' });
+      
       const { email } = req.body;
       if (!email) return res.status(400).json({ error: 'Email is required' });
 
@@ -514,6 +556,8 @@ export async function createServer() {
 
   app.post('/api/auth/reset-password', async (req, res) => {
     try {
+      if (!adminAuth || !adminDb) return res.status(500).json({ error: 'Auth/Database service unavailable' });
+      
       const { token, newPassword } = req.body;
       if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password are required' });
 
@@ -556,6 +600,8 @@ export async function createServer() {
 
   app.post('/api/errands/complete', async (req, res) => {
     try {
+      if (!adminDb) return res.status(500).json({ error: 'Database service unavailable' });
+      
       const { errandId, signature, rating } = req.body;
       if (!errandId) return res.status(400).json({ error: 'Errand ID is required' });
 
@@ -656,6 +702,7 @@ export async function createServer() {
   };
 
   const checkOverdueVerifications = async () => {
+    if (!adminDb) return;
     console.log('Checking for overdue verifications...');
     try {
       const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
