@@ -4,8 +4,12 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import admin from 'firebase-admin';
 // import { firebaseService } from './services/firebaseService'; // Removed to prevent client SDK initialization in Node
+import { Resend } from 'resend';
 import { ErrandStatus } from './types';
 import firebaseConfig from './firebase-applet-config.json';
+
+// Initialize Resend
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -97,7 +101,13 @@ export async function createServer() {
   // Google Cloud Run injects PORT. Defaulting to 3000 for AI Studio preview.
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json());
+  app.use((req, res, next) => {
+    if (req.body !== undefined) {
+      next();
+    } else {
+      express.json()(req, res, next);
+    }
+  });
 
   // SMS Notification Endpoint
   app.post('/api/notifications/sms', async (req, res) => {
@@ -123,7 +133,6 @@ export async function createServer() {
     expiresAt: number;
     lastSentAt: number;
   }
-  const verificationStore = new Map<string, VerificationPackage>();
 
   // API routes
   app.get('/api/health', (req, res) => {
@@ -192,6 +201,10 @@ export async function createServer() {
     console.warn("WARNING: Global fetch is not available. External API calls may fail.");
   }
 
+  // In-memory storage for sessions (since adminDb might lack permissions)
+  const verificationSessions = new Map<string, VerificationPackage>();
+  const passwordResets = new Map<string, any>();
+
   app.post('/api/auth/verify/send-package', async (req, res) => {
     console.log('Received verification request:', req.body);
     const { phone, email, type } = req.body; // type: 'phone' | 'email' | 'both'
@@ -201,29 +214,31 @@ export async function createServer() {
 
     const normalizedPhone = phone ? normalizePhone(phone) : '';
     const key = type === 'phone' ? normalizedPhone : email;
-    const existing = verificationStore.get(key);
-
-    // Spam Check: 60 seconds
-    if (existing && Date.now() - existing.lastSentAt < 60000) {
-      return res.status(429).json({ error: 'Please wait 60 seconds before requesting another code' });
-    }
-
-    const smsCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const emailCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
-
-    console.log(`Generated codes for ${key}: SMS=${smsCode}, Email=${emailCode}`);
-
-    verificationStore.set(key, {
-      phoneCode: smsCode,
-      phoneVerified: (type === 'email') ? true : (existing?.phoneVerified || false),
-      emailCode: emailCode,
-      emailVerified: (type === 'phone') ? true : (existing?.emailVerified || false),
-      expiresAt,
-      lastSentAt: Date.now()
-    });
-
+    const docId = encodeURIComponent(key);
+    
     try {
+      const existing = verificationSessions.get(docId);
+
+      // Spam Check: 60 seconds
+      if (existing && Date.now() - existing.lastSentAt < 60000) {
+        return res.status(429).json({ error: 'Please wait 60 seconds before requesting another code' });
+      }
+
+      const smsCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const emailCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+      console.log(`Generated codes for ${key}: SMS=${smsCode}, Email=${emailCode}`);
+
+      verificationSessions.set(docId, {
+        phoneCode: smsCode,
+        phoneVerified: (type === 'email') ? true : (existing?.phoneVerified || false),
+        emailCode: emailCode,
+        emailVerified: (type === 'phone') ? true : (existing?.emailVerified || false),
+        expiresAt,
+        lastSentAt: Date.now()
+      });
+
       const promises = [];
 
       // Send SMS via TalkSasa
@@ -250,29 +265,31 @@ export async function createServer() {
 
       // Send Email via Resend
       if (type === 'email' || type === 'both') {
-        if (process.env.RESEND_API_KEY) {
-          promises.push(fetchWithTimeout('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              from: process.env.RESEND_FROM || 'onboarding@resend.dev',
-              to: email,
-              subject: 'Verify your account',
-              html: `
-                <div style="font-family: sans-serif; padding: 20px; color: #333;">
-                  <h2 style="color: #000;">Verification Code</h2>
-                  <p>Your verification code is:</p>
-                  <div style="background: #f4f4f4; padding: 20px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; border-radius: 10px;">
-                    ${emailCode}
-                  </div>
-                  <p style="font-size: 12px; color: #666; margin-top: 20px;">This code expires in 5 minutes.</p>
+        if (resend) {
+          promises.push(resend.emails.send({
+            from: process.env.RESEND_FROM || 'onboarding@resend.dev',
+            to: email,
+            subject: 'Verify your account',
+            html: `
+              <div style="font-family: sans-serif; padding: 20px; color: #333;">
+                <h2 style="color: #000;">Verification Code</h2>
+                <p>Your verification code is:</p>
+                <div style="background: #f4f4f4; padding: 20px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; border-radius: 10px;">
+                  ${emailCode}
                 </div>
-              `
-            })
-          }).catch(e => console.error('Email Send Error:', e.message)));
+                <p style="font-size: 12px; color: #666; margin-top: 20px;">This code expires in 5 minutes.</p>
+              </div>
+            `
+          }).then(result => {
+            if (result.error) {
+              console.error('Resend Error:', result.error);
+              throw new Error(`Resend Error: ${result.error.message}`);
+            }
+            console.log('Verification email sent successfully');
+          }).catch(e => {
+            console.error('Email Send Error:', e.message);
+            // We don't rethrow here to allow the process to continue if one channel fails
+          }));
         } else {
           console.warn('RESEND_API_KEY not configured, skipping Email');
         }
@@ -292,7 +309,9 @@ export async function createServer() {
       
       const normalizedPhone = phone ? normalizePhone(phone) : '';
       const key = type === 'phone' ? normalizedPhone : email;
-      const stored = verificationStore.get(key);
+      const docId = encodeURIComponent(key);
+      
+      const stored = verificationSessions.get(docId);
 
       const cleanSmsCode = smsCode ? String(smsCode).trim() : undefined;
       const cleanEmailCode = emailCode ? String(emailCode).trim() : undefined;
@@ -321,7 +340,7 @@ export async function createServer() {
         if ((cleanSmsCode && cleanSmsCode === stored.phoneCode) || (cleanEmailCode && cleanEmailCode === stored.emailCode)) match = true;
       }
 
-      verificationStore.set(key, updated);
+      verificationSessions.set(docId, updated);
 
       const isFullyVerified = updated.phoneVerified && updated.emailVerified;
       const isCurrentTypeVerified = type === 'phone' ? updated.phoneVerified : (type === 'email' ? updated.emailVerified : isFullyVerified);
@@ -329,7 +348,7 @@ export async function createServer() {
       if (isCurrentTypeVerified) {
         // If we are fully verified, or if we only requested one type and it's verified, we can proceed
         if (isFullyVerified) {
-          verificationStore.delete(key);
+          verificationSessions.delete(docId);
         }
         
         // If userId is provided (authenticated user verifying phone)
@@ -412,7 +431,172 @@ export async function createServer() {
       });
     } catch (error: any) {
       console.error('Verification error:', error);
+      
+      // Handle specific Firebase errors
+      if (error.code === 'auth/internal-error' || (error.message && error.message.includes('identitytoolkit.googleapis.com'))) {
+        return res.status(500).json({ 
+          error: 'The authentication service is not properly configured. Please contact support.',
+          code: 'AUTH_CONFIG_ERROR'
+        });
+      }
+
       return res.status(500).json({ error: error.message || 'Failed to complete verification' });
+    }
+  });
+
+  app.post('/api/auth/forgot-password', async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: 'Email is required' });
+
+      let userRecord;
+      try {
+        userRecord = await adminAuth.getUserByEmail(email);
+      } catch (e: any) {
+        // If user not found, we still return success to prevent email enumeration
+        if (e.code === 'auth/user-not-found') {
+          return res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
+        }
+        throw e;
+      }
+
+      // Generate a unique token
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
+
+      // Store in Firestore
+      await adminDb.collection('password_resets').doc(token).set({
+        uid: userRecord.uid,
+        email: userRecord.email,
+        expiresAt,
+        used: false
+      });
+
+      // Send email via Resend
+      if (!process.env.RESEND_API_KEY) {
+        console.warn('RESEND_API_KEY not configured, cannot send reset email');
+        return res.status(500).json({ error: 'Email service not configured' });
+      }
+
+      // Construct reset link (assuming frontend handles this route)
+      const resetLink = `${req.protocol}://${req.get('host')}/reset-password?token=${token}`;
+
+      await fetchWithTimeout('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: process.env.RESEND_FROM || 'onboarding@resend.dev',
+          to: email,
+          subject: 'Reset your password',
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; color: #333;">
+              <h2 style="color: #000;">Password Reset Request</h2>
+              <p>You requested to reset your password. Click the link below to set a new password:</p>
+              <div style="margin: 20px 0;">
+                <a href="${resetLink}" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+              </div>
+              <p style="font-size: 12px; color: #666; margin-top: 20px;">This link will expire in 1 hour and can only be used once.</p>
+              <p style="font-size: 12px; color: #666;">If you did not request this, please ignore this email.</p>
+            </div>
+          `
+        })
+      });
+
+      res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
+    } catch (error: any) {
+      console.error('Forgot password error:', error);
+      res.status(500).json({ error: 'Failed to process request' });
+    }
+  });
+
+  app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+      if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password are required' });
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      }
+
+      const resetDocRef = adminDb.collection('password_resets').doc(token);
+      const resetDoc = await resetDocRef.get();
+
+      if (!resetDoc.exists) {
+        return res.status(400).json({ error: 'Invalid or expired reset link' });
+      }
+
+      const resetData = resetDoc.data() as any;
+
+      if (resetData.used) {
+        return res.status(400).json({ error: 'This reset link has already been used' });
+      }
+
+      if (Date.now() > resetData.expiresAt) {
+        return res.status(400).json({ error: 'This reset link has expired' });
+      }
+
+      // Update user password
+      await adminAuth.updateUser(resetData.uid, {
+        password: newPassword
+      });
+
+      // Mark token as used (or delete it)
+      await resetDocRef.update({ used: true });
+      // Alternatively, delete it: await resetDocRef.delete();
+
+      res.json({ success: true, message: 'Password has been reset successfully' });
+    } catch (error: any) {
+      console.error('Reset password error:', error);
+      res.status(500).json({ error: 'Failed to reset password' });
+    }
+  });
+
+  app.post('/api/errands/complete', async (req, res) => {
+    try {
+      const { errandId, signature, rating } = req.body;
+      if (!errandId) return res.status(400).json({ error: 'Errand ID is required' });
+
+      const errandDoc = await adminDb.collection('errands').doc(errandId).get();
+      if (!errandDoc.exists) return res.status(404).json({ error: 'Errand not found' });
+      
+      const errand = errandDoc.data() as any;
+      if (!errand.runnerId) return res.status(400).json({ error: 'Errand has no runner' });
+
+      const amount = errand.acceptedPrice || errand.budget || 0;
+
+      // Update errand status
+      await adminDb.collection('errands').doc(errandId).update({
+        status: ErrandStatus.COMPLETED,
+        signature: signature || '',
+        completedAt: Date.now(),
+        runnerRatingGiven: rating || 5
+      });
+
+      // Update runner balance and notify
+      const runnerDoc = await adminDb.collection('users').doc(errand.runnerId).get();
+      if (runnerDoc.exists) {
+        const runner = runnerDoc.data() as any;
+        const newBalance = (runner.walletBalance || 0) + amount;
+        const newCompleted = (runner.errandsCompleted || 0) + 1;
+        
+        await adminDb.collection('users').doc(errand.runnerId).update({ 
+          walletBalance: newBalance,
+          errandsCompleted: newCompleted
+        });
+
+        if (runner.phone) {
+          const message = `Dear ${runner.name}, your review for errand "${errand.title}" has been updated. Ksh ${amount} has been deposited to your errandsapp account. Your current balance is Ksh ${newBalance}.`;
+          sendSMS(runner.phone, message).catch(e => console.error("SMS failed", e));
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Complete errand error:', error);
+      res.status(500).json({ error: error.message || 'Failed to complete errand' });
     }
   });
 
@@ -498,20 +682,37 @@ export async function createServer() {
     }
   };
 
-  // Run checks every hour
-  setInterval(() => {
-    cancelStaleErrands();
-    checkOverdueVerifications();
-  }, 60 * 60 * 1000);
-  
-  // Initial checks
-  cancelStaleErrands().catch(err => console.error("Initial stale check failed", err));
-  checkOverdueVerifications().catch(err => console.error("Initial verification check failed", err));
+  // Run background tasks only once per process
+  if (!(global as any).__backgroundTasksStarted) {
+    (global as any).__backgroundTasksStarted = true;
+    
+    // Run checks every hour
+    setInterval(() => {
+      cancelStaleErrands();
+      checkOverdueVerifications();
+    }, 60 * 60 * 1000);
+    
+    // Initial checks
+    cancelStaleErrands().catch(err => console.error("Initial stale check failed", err));
+    checkOverdueVerifications().catch(err => console.error("Initial verification check failed", err));
+  }
 
   // Global error handler
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error('Unhandled Server Error:', err);
-    res.status(500).json({ error: err.message || 'A server error occurred' });
+    
+    // Check for specific Firebase Admin errors
+    if (err.code === 'auth/internal-error' || (err.message && err.message.includes('identitytoolkit.googleapis.com'))) {
+      return res.status(500).json({ 
+        error: 'Authentication service is currently unavailable. Please ensure Identity Toolkit API is enabled in the Google Cloud Console.',
+        code: 'AUTH_SERVICE_DISABLED'
+      });
+    }
+
+    res.status(500).json({ 
+      error: err.message || 'A server error occurred',
+      code: err.code || 'SERVER_ERROR'
+    });
   });
 
   return { app, PORT };
@@ -519,12 +720,27 @@ export async function createServer() {
 
 // Only start the server if NOT running on Vercel (which uses the exported createServer)
 if (!process.env.VERCEL) {
+  process.on('uncaughtException', (err) => {
+    console.error('CRITICAL: Uncaught Exception:', err);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+  });
+
   createServer().then(({ app, PORT }) => {
-    app.listen(PORT, '0.0.0.0', () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server listening on port ${PORT}`);
     });
+    
+    server.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use. This might happen during hot-reloads.`);
+      } else {
+        console.error('Server error:', err);
+      }
+    });
   }).catch(err => {
-    console.error("Critical Server Failure:", err);
-    process.exit(1);
+    console.error('Failed to start server:', err);
   });
 }

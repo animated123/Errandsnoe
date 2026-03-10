@@ -27,10 +27,16 @@ const PhoneVerificationModal: React.FC<PhoneVerificationModalProps> = ({ user, o
         body: JSON.stringify({ phone: normalized, type: 'phone' })
       });
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `Server error: ${response.status}`);
+      }
       setStep('otp');
     } catch (err: any) {
-      setError(err.message || "Failed to send OTP");
+      if (err.message.includes('FUNCTION_INVOCATION_FAILED')) {
+        setError('The server is currently busy. Please try again in a few moments.');
+      } else {
+        setError(err.message || "Failed to send OTP");
+      }
     } finally {
       setLoading(false);
     }
@@ -52,7 +58,9 @@ const PhoneVerificationModal: React.FC<PhoneVerificationModalProps> = ({ user, o
         })
       });
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `Verification failed: ${response.status}`);
+      }
       
       if (data.phoneVerified || data.fullyVerified) {
         onSuccess();

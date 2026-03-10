@@ -21,6 +21,18 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
 });
 
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if(error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration. ");
+    }
+    // Skip logging for other errors, as this is simply a connection test.
+  }
+}
+testConnection();
+
 export const calculateDistance = (p1: Coordinates, p2: Coordinates) => {
   const R = 6371;
   const dLat = (p2.lat - p1.lat) * Math.PI / 180;
@@ -31,13 +43,37 @@ export const calculateDistance = (p1: Coordinates, p2: Coordinates) => {
 };
 
 export const formatFirebaseError = (error: any): string => {
+  if (!error) return "An unexpected error occurred.";
+  
   const message = typeof error === 'string' ? error : error.message;
+  
+  // Handle JSON error messages from server
   if (message) {
     try {
       const parsed = JSON.parse(message);
       if (parsed.error) return parsed.error;
     } catch (e) {}
   }
+
+  // Handle common Firebase Auth error codes
+  if (error.code) {
+    switch (error.code) {
+      case 'auth/user-not-found': return "No account found with this email.";
+      case 'auth/wrong-password': return "Incorrect password. Please try again.";
+      case 'auth/email-already-in-use': return "This email is already registered.";
+      case 'auth/invalid-email': return "Please enter a valid email address.";
+      case 'auth/weak-password': return "Password should be at least 6 characters.";
+      case 'auth/network-request-failed': return "Network error. Please check your internet connection.";
+      case 'auth/too-many-requests': return "Too many attempts. Please try again later.";
+      case 'auth/internal-error': return "Authentication service error. Please try again later.";
+    }
+  }
+
+  // Handle Firestore permission errors
+  if (message && message.toLowerCase().includes('permission denied')) {
+    return "You don't have permission to perform this action.";
+  }
+
   return message || "An unexpected error occurred.";
 };
 
@@ -741,37 +777,15 @@ class FirebaseService {
 
   async completeErrand(errandId: string, signature: string, rating: number): Promise<void> {
     try {
-      const errand = await this.fetchErrandById(errandId);
-      if (!errand || !errand.runnerId) return;
-
-      const amount = errand.acceptedPrice || errand.budget || 0;
-
-      await this.updateErrand(errandId, {
-        status: ErrandStatus.COMPLETED,
-        signature,
-        completedAt: Date.now(),
-        runnerRatingGiven: rating
+      const response = await fetch('/api/errands/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ errandId, signature, rating })
       });
-
-      // Update runner balance and notify
-      const runner = await this.fetchUserById(errand.runnerId);
-      if (runner) {
-        const newBalance = (runner.walletBalance || 0) + amount;
-        const newCompleted = (runner.errandsCompleted || 0) + 1;
-        
-        await this.adminUpdateUser(runner.id, { 
-          walletBalance: newBalance,
-          errandsCompleted: newCompleted
-        });
-
-        if (runner.phone) {
-          const message = `Dear ${runner.name}, your review for errand "${errand.title}" has been updated. Ksh ${amount} has been deposited to your errandsapp account. Your current balance is Ksh ${newBalance}.`;
-          await fetch('/api/notifications/sms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipient: runner.phone, message })
-          }).catch(e => console.error("SMS failed", e));
-        }
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to complete errand');
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);

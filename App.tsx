@@ -26,6 +26,7 @@ import TopProgressBar from './components/TopProgressBar';
 import LoadingSpinner from './components/LoadingSpinner';
 import BidModal from './components/BidModal';
 import AuthModal from './components/AuthModal';
+import ResetPasswordModal from './components/ResetPasswordModal';
 import PhoneVerificationModal from './components/PhoneVerificationModal';
 
 const callGeminiWithRetry = async (prompt: string, maxRetries = 3): Promise<string> => {
@@ -319,7 +320,7 @@ const MapLocationPicker: React.FC<{
 }> = ({ label, value, onSelect, placeholder }) => {
   const [showMap, setShowMap] = useState(false);
   const [searchQuery, setSearchQuery] = useState(value?.name || '');
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
   return (
     <div className="space-y-2">
@@ -1305,6 +1306,7 @@ export default function App() {
   const [proximityFilter, setProximityFilter] = useState<number | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
+  const [resetToken, setResetToken] = useState<string | null>(null);
   const [showPhoneVerificationModal, setShowPhoneVerificationModal] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showPriceGuideModal, setShowPriceGuideModal] = useState(false);
@@ -1420,6 +1422,12 @@ export default function App() {
   useEffect(() => {
     firebaseService.fetchFeaturedServices().then(setFeaturedServices);
     firebaseService.fetchServiceListings().then(setServiceListings);
+
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token && window.location.pathname === '/reset-password') {
+      setResetToken(token);
+    }
   }, []);
 
   useEffect(() => {
@@ -2299,6 +2307,13 @@ export default function App() {
         firebaseService={firebaseService} 
         initialMode={authModalMode}
       />
+
+      {resetToken && (
+        <ResetPasswordModal 
+          token={resetToken} 
+          onClose={() => setResetToken(null)} 
+        />
+      )}
 
       {showPhoneVerificationModal && user && (
         <PhoneVerificationModal 
@@ -3496,7 +3511,7 @@ const ErrandStatusTimeline: React.FC<{ status: ErrandStatus, category?: ErrandCa
 };
 
 const MapView: React.FC<{ errands?: Errand[], onSelectErrand?: (e: Errand) => void, height?: string, userLocation?: Coordinates | null }> = ({ errands = [], onSelectErrand, height = "400px", userLocation }) => {
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
   if (!apiKey) {
     return (
@@ -3523,15 +3538,16 @@ const MapView: React.FC<{ errands?: Errand[], onSelectErrand?: (e: Errand) => vo
             </AdvancedMarker>
           )}
           {errands.map(e => (
-            e.pickupCoordinates && (
-              <AdvancedMarker 
-                key={e.id} 
-                position={{ lat: e.pickupCoordinates.lat, lng: e.pickupCoordinates.lng }}
-                onClick={() => onSelectErrand?.(e)}
-              >
-                <Pin background={'#000'} glyphColor={'#fff'} borderColor={'#000'} />
-              </AdvancedMarker>
-            )
+            <React.Fragment key={e.id}>
+              {e.pickupCoordinates && (
+                <AdvancedMarker 
+                  position={{ lat: e.pickupCoordinates.lat, lng: e.pickupCoordinates.lng }}
+                  onClick={() => onSelectErrand?.(e)}
+                >
+                  <Pin background={'#000'} glyphColor={'#fff'} borderColor={'#000'} />
+                </AdvancedMarker>
+              )}
+            </React.Fragment>
           ))}
         </Map>
       </div>
@@ -4406,12 +4422,6 @@ const ErrandDetailScreen: React.FC<any> = ({
     // Check suspension
     if (user.isSuspended) {
       alert(`Your account is suspended: ${user.suspensionReason}`);
-      return;
-    }
-
-    // Check phone verification
-    if (!user.phoneVerified) {
-      setShowPhoneVerificationModal(true);
       return;
     }
 

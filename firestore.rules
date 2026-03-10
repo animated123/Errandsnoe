@@ -46,7 +46,6 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
                       request.resource.data.role == 'requester' && 
-                      (!('phoneVerified' in request.resource.data) || request.resource.data.phoneVerified == false) &&
                       (!('isVerified' in request.resource.data) || request.resource.data.isVerified == false) &&
                       (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false);
       allow update: if (isOwner(userId) && 

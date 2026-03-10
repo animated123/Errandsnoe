@@ -13,6 +13,7 @@ interface AuthModalProps {
 
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, firebaseService, initialMode = 'login' }) => {
   const [isLogin, setIsLogin] = useState(initialMode === 'login');
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [useOTP, setUseOTP] = useState(false);
   const [otpType, setOtpType] = useState<'phone' | 'email'>('phone');
   const [otpStep, setOtpStep] = useState<'phone' | 'verify'>('phone');
@@ -24,6 +25,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
   const [emailResendTimer, setEmailResendTimer] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -46,14 +48,57 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
   if (!isOpen) return null;
 
   const safeFetch = async (url: string, options: any) => {
-    const res = await fetch(url, options);
-    const contentType = res.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      return await res.json();
+    try {
+      const res = await fetch(url, options);
+      const contentType = res.headers.get('content-type');
+      
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || data.message || `Server error: ${res.status}`);
+        }
+        return data;
+      }
+      
+      const text = await res.text();
+      if (!res.ok) {
+        // Handle common platform errors
+        if (text.includes('FUNCTION_INVOCATION_FAILED')) {
+          throw new Error('The server is currently busy or encountered a temporary issue. Please try again in a few moments.');
+        }
+        if (res.status === 503 || res.status === 504) {
+          throw new Error('The server is taking too long to respond. Please try again.');
+        }
+        throw new Error(text || `Server error: ${res.status}`);
+      }
+      return { success: true, message: text };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error('Request timed out. Please check your connection and try again.');
+      }
+      throw err;
     }
-    const text = await res.text();
-    if (!res.ok) throw new Error(text || `Server error: ${res.status}`);
-    return { success: true, message: text };
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.email) return setError('Email is required');
+    setLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const data = await safeFetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email })
+      });
+      if (data.error) throw new Error(data.error);
+      setSuccessMsg(data.message || 'Reset link sent to your email.');
+    } catch (err: any) {
+      setError(err.message || 'Failed to send reset link');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSendVerificationPackage = async () => {
@@ -176,12 +221,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
               <ShoppingBag className="text-white" size={28} />
             </div>
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-              {useOTP ? 'Verification' : (isLogin ? 'Welcome Back' : 'Join Errands')}
+              {isForgotPassword ? 'Reset Password' : (useOTP ? 'Verification' : (isLogin ? 'Welcome Back' : 'Join Errands'))}
             </h2>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
-              {useOTP 
-                ? (isLogin ? 'Secure access via OTP' : 'Verify your details to create account') 
-                : 'Login required to continue'}
+              {isForgotPassword 
+                ? 'Enter your email to receive a reset link'
+                : (useOTP 
+                  ? (isLogin ? 'Secure access via OTP' : 'Verify your details to create account') 
+                  : 'Login required to continue')}
             </p>
           </div>
 
@@ -191,7 +238,39 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
             </div>
           )}
 
-          {useOTP ? (
+          {successMsg && (
+            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-600 text-[10px] font-black uppercase tracking-widest text-center">
+              {successMsg}
+            </div>
+          )}
+
+          {isForgotPassword ? (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email Address</label>
+                <input 
+                  type="email" required
+                  value={form.email} onChange={e => setForm({...form, email: e.target.value})}
+                  placeholder="email@example.com"
+                  className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-black/5"
+                />
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={loading}
+                className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all mt-4 flex items-center justify-center gap-3"
+              >
+                {loading ? <Loader2 className="animate-spin" size={20} /> : 'Send Reset Link'}
+              </button>
+
+              <div className="pt-4 border-t border-slate-100 text-center mt-6">
+                <button type="button" onClick={() => { setIsForgotPassword(false); setError(null); setSuccessMsg(null); }} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-black transition-colors">
+                  Back to Login
+                </button>
+              </div>
+            </form>
+          ) : useOTP ? (
             <div className="space-y-6">
               {otpStep === 'phone' ? (
                 <div className="space-y-4">
@@ -372,7 +451,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Password</label>
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Password</label>
+                  {isLogin && (
+                    <button 
+                      type="button" 
+                      onClick={() => { setIsForgotPassword(true); setError(null); setSuccessMsg(null); }}
+                      className="text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 transition-colors"
+                    >
+                      Forgot Password?
+                    </button>
+                  )}
+                </div>
                 <input 
                   type="password" required
                   value={form.password} onChange={e => setForm({...form, password: e.target.value})}
