@@ -4,9 +4,10 @@ import { Key, Loader2, CheckCircle } from 'lucide-react';
 interface ResetPasswordModalProps {
   token: string;
   onClose: () => void;
+  firebaseService: any;
 }
 
-const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({ token, onClose }) => {
+const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({ token, onClose, firebaseService }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,18 +27,10 @@ const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({ token, onClose 
     setError(null);
 
     try {
-      const res = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword: password })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to reset password');
-
+      await firebaseService.confirmReset(token, password);
       setSuccess(true);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Failed to reset password');
     } finally {
       setLoading(false);
     }

@@ -1424,8 +1424,10 @@ export default function App() {
     firebaseService.fetchServiceListings().then(setServiceListings);
 
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (token && window.location.pathname === '/reset-password') {
+    const token = params.get('token') || params.get('oobCode');
+    const mode = params.get('mode');
+    
+    if (token && (window.location.pathname === '/reset-password' || mode === 'resetPassword')) {
       setResetToken(token);
     }
   }, []);
@@ -2312,6 +2314,7 @@ export default function App() {
         <ResetPasswordModal 
           token={resetToken} 
           onClose={() => setResetToken(null)} 
+          firebaseService={firebaseService}
         />
       )}
 

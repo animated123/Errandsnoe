@@ -87,15 +87,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
     setError(null);
     setSuccessMsg(null);
     try {
-      const data = await safeFetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.email })
-      });
-      if (data.error) throw new Error(data.error);
-      setSuccessMsg(data.message || 'Reset link sent to your email.');
+      await firebaseService.sendPasswordReset(form.email);
+      setSuccessMsg('Reset link sent to your email. Please check your inbox.');
     } catch (err: any) {
-      setError(err.message || 'Failed to send reset link');
+      setError(formatFirebaseError(err));
     } finally {
       setLoading(false);
     }

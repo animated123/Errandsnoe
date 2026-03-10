@@ -1,7 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
-  signOut, onAuthStateChanged, updateProfile, signInWithCustomToken 
+  signOut, onAuthStateChanged, updateProfile, signInWithCustomToken,
+  sendPasswordResetEmail, confirmPasswordReset
 } from 'firebase/auth';
 import { 
   getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, 
@@ -256,6 +257,22 @@ class FirebaseService {
 
   async logout(): Promise<void> {
     await signOut(auth);
+  }
+
+  async sendPasswordReset(email: string): Promise<void> {
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async confirmReset(code: string, newPassword: string): Promise<void> {
+    try {
+      await confirmPasswordReset(auth, code, newPassword);
+    } catch (error) {
+      throw error;
+    }
   }
 
   async getCurrentUser(): Promise<User | null> {
