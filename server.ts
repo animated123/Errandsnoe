@@ -423,35 +423,80 @@ export async function createServer() {
           
           let uid: string | null = null;
           
-          // Try finding by phone
+          // 1. Try finding by phone in Firebase Auth
           if (normalizedPhone) {
             try {
               const userRecord = await adminAuth.getUserByPhoneNumber('+' + normalizedPhone);
               uid = userRecord.uid;
+              console.log(`Found user by phone in Auth: ${uid}`);
             } catch (e) {}
           }
           
-          // Try finding by email if phone failed
+          // 2. Try finding by email in Firebase Auth if phone failed
           if (!uid && email) {
             try {
               const userRecord = await adminAuth.getUserByEmail(email);
               uid = userRecord.uid;
+              console.log(`Found user by email in Auth: ${uid}`);
             } catch (e) {}
+          }
+
+          // 3. Try finding by phone in Firestore if still not found
+          if (!uid && normalizedPhone) {
+            try {
+              const userDocs = await adminDb.collection('users')
+                .where('phone', '==', normalizedPhone)
+                .limit(1)
+                .get();
+              if (!userDocs.empty) {
+                uid = userDocs.docs[0].id;
+                console.log(`Found user by phone in Firestore: ${uid}`);
+              }
+            } catch (e) {
+              console.error('Firestore phone lookup error:', e);
+            }
+          }
+
+          // 4. Try finding by email in Firestore if still not found
+          if (!uid && email) {
+            try {
+              const userDocs = await adminDb.collection('users')
+                .where('email', '==', email)
+                .limit(1)
+                .get();
+              if (!userDocs.empty) {
+                uid = userDocs.docs[0].id;
+                console.log(`Found user by email in Firestore: ${uid}`);
+              }
+            } catch (e) {
+              console.error('Firestore email lookup error:', e);
+            }
           }
 
           // If user exists, create custom token
           if (uid) {
-            await adminDb.collection('users').doc(uid).update({ phoneVerified: true });
+            // Update verification status in Firestore
+            try {
+              const updateData: any = {};
+              if (updated.phoneVerified) updateData.phoneVerified = true;
+              if (updated.emailVerified) updateData.isVerified = true; // or emailVerified if you have that field
+              await adminDb.collection('users').doc(uid).update(updateData);
+            } catch (e) {
+              console.warn(`Failed to update user ${uid} verification status:`, e.message);
+            }
+
             const customToken = await adminAuth.createCustomToken(uid);
             return res.json({ 
               success: true, 
               fullyVerified: true, 
-              phoneVerified: true,
+              phoneVerified: updated.phoneVerified,
+              emailVerified: updated.emailVerified,
               customToken,
               message: 'Identity fully verified' 
             });
           } else {
             // User doesn't exist, they need to register
+            console.log(`User not found for ${key}, redirecting to registration`);
             return res.json({ 
               success: true, 
               fullyVerified: true, 

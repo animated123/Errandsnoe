@@ -219,7 +219,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
               <ShoppingBag className="text-white" size={28} />
             </div>
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-              {isForgotPassword ? 'Reset Password' : (useOTP ? 'Verification' : (isLogin ? 'Welcome Back' : 'Join Errands'))}
+              {isForgotPassword ? 'Reset Password' : (useOTP ? (isLogin ? 'OTP Login' : 'Verification') : (isLogin ? 'Welcome Back' : 'Join Errands'))}
             </h2>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
               {isForgotPassword 
@@ -299,11 +299,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{isLogin ? 'Email or Phone Number' : 'Email Address'}</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email Address</label>
                       <input 
                         type="text" 
                         value={form.email} onChange={e => setForm({...form, email: e.target.value})}
-                        placeholder={isLogin ? "email@example.com or 07..." : "email@example.com"}
+                        placeholder="email@example.com"
                         className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-black/5"
                       />
                     </div>
@@ -313,7 +313,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
                     disabled={loading}
                     className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all"
                   >
-                    {loading ? <Loader2 className="animate-spin mx-auto" /> : `Send ${otpType.toUpperCase()} Code`}
+                    {loading ? <Loader2 className="animate-spin mx-auto" /> : (isLogin ? 'Send OTP' : `Send ${otpType.toUpperCase()} Code`)}
                   </button>
                 </div>
               ) : (
@@ -490,7 +490,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
                     onClick={() => setUseOTP(true)}
                     className="w-full py-4 border-2 border-slate-100 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
                   >
-                    <Phone size={14} /> Login with Phone (OTP)
+                    <Mail size={14} /> Login with OTP (Email/Phone)
                   </button>
                 </>
               )}

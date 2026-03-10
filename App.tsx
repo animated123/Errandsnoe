@@ -1302,7 +1302,7 @@ export default function App() {
     failedErrandsPercent: 0
   });
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [profileView, setProfileView] = useState<'main' | 'edit' | 'history'>('main');
+  const [profileView, setProfileView] = useState<'main' | 'edit' | 'history' | 'apply-runner'>('main');
   const [proximityFilter, setProximityFilter] = useState<number | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
@@ -2961,6 +2961,18 @@ const AdminPanel: React.FC<{
                       className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-indigo-100 transition-all"
                     >
                       Make Admin
+                    </button>
+                  )}
+                  {isSuperAdmin && u.isAdmin && u.email !== 'ngugimaina4@gmail.com' && u.email !== 'admin@codexict.co.ke' && (
+                    <button 
+                      onClick={() => {
+                        if(confirm(`Remove Admin status from ${u.name}?`)) {
+                          firebaseService.adminUpdateUser(u.id, { isAdmin: false }).then(() => firebaseService.fetchAllUsers().then(setDbUsers));
+                        }
+                      }}
+                      className="px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-rose-100 transition-all"
+                    >
+                      Remove Admin
                     </button>
                   )}
                   <button 

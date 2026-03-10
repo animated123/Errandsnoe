@@ -261,15 +261,27 @@ class FirebaseService {
 
   async sendPasswordReset(email: string): Promise<void> {
     try {
-      await sendPasswordResetEmail(auth, email);
+      const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to send reset email');
     } catch (error) {
       throw error;
     }
   }
 
-  async confirmReset(code: string, newPassword: string): Promise<void> {
+  async confirmReset(token: string, newPassword: string): Promise<void> {
     try {
-      await confirmPasswordReset(auth, code, newPassword);
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to reset password');
     } catch (error) {
       throw error;
     }
