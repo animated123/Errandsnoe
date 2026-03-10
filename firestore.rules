@@ -42,6 +42,11 @@ service cloud.firestore {
     // Rules
     // ===============================================================
 
+    match /public_users/{userId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && 

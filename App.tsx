@@ -122,16 +122,16 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const popularLocations: LocationSuggestion[] = [
-    { name: "Sarit Centre", area: "Westlands", description: "Shopping Mall & Landmarks", coords: { lat: -1.2585, lng: 36.8037 } },
-    { name: "Westlands", area: "Nairobi", description: "Commercial Hub", coords: { lat: -1.2646, lng: 36.8045 } },
-    { name: "Village Market", area: "Gigiri", description: "Shopping & Recreation", coords: { lat: -1.2297, lng: 36.8042 } },
-    { name: "Yaya Centre", area: "Kilimani", description: "Shopping Mall", coords: { lat: -1.2911, lng: 36.7865 } },
-    { name: "Two Rivers Mall", area: "Ruaka", description: "Largest Mall in East Africa", coords: { lat: -1.2111, lng: 36.7911 } },
-    { name: "Juja City Mall", area: "Juja", description: "Shopping along Thika Road", coords: { lat: -1.1022, lng: 37.0144 } },
-    { name: "Nairobi CBD", area: "Nairobi", description: "City Centre", coords: { lat: -1.286389, lng: 36.817223 } },
-    { name: "JKIA", area: "Embakasi", description: "International Airport", coords: { lat: -1.3192, lng: 36.9275 } },
-    { name: "Greenspan Mall", area: "Donholm", description: "Shopping Centre", coords: { lat: -1.2944, lng: 36.9011 } },
-    { name: "Garden City Mall", area: "Thika Road", description: "Shopping & Residential", coords: { lat: -1.2325, lng: 36.8783 } }
+    { id: "sarit", name: "Sarit Centre", area: "Westlands", description: "Shopping Mall & Landmarks", coords: { lat: -1.2585, lng: 36.8037 } },
+    { id: "westlands", name: "Westlands", area: "Nairobi", description: "Commercial Hub", coords: { lat: -1.2646, lng: 36.8045 } },
+    { id: "village-market", name: "Village Market", area: "Gigiri", description: "Shopping & Recreation", coords: { lat: -1.2297, lng: 36.8042 } },
+    { id: "yaya", name: "Yaya Centre", area: "Kilimani", description: "Shopping Mall", coords: { lat: -1.2911, lng: 36.7865 } },
+    { id: "two-rivers", name: "Two Rivers Mall", area: "Ruaka", description: "Largest Mall in East Africa", coords: { lat: -1.2111, lng: 36.7911 } },
+    { id: "juja-city", name: "Juja City Mall", area: "Juja", description: "Shopping along Thika Road", coords: { lat: -1.1022, lng: 37.0144 } },
+    { id: "nairobi-cbd", name: "Nairobi CBD", area: "Nairobi", description: "City Centre", coords: { lat: -1.286389, lng: 36.817223 } },
+    { id: "jkia", name: "JKIA", area: "Embakasi", description: "International Airport", coords: { lat: -1.3192, lng: 36.9275 } },
+    { id: "greenspan", name: "Greenspan Mall", area: "Donholm", description: "Shopping Centre", coords: { lat: -1.2944, lng: 36.9011 } },
+    { id: "garden-city", name: "Garden City Mall", area: "Thika Road", description: "Shopping & Residential", coords: { lat: -1.2325, lng: 36.8783 } }
   ];
 
   useEffect(() => {
@@ -189,6 +189,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
       });
       const data = JSON.parse(response.text || '[]');
       const geminiSuggestions = data.map((d: any) => ({ 
+        id: d.name.toLowerCase().replace(/\s+/g, '-'),
         name: d.name, 
         area: d.area,
         description: d.description,
@@ -250,8 +251,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recently Used</p>
             </div>
           )}
-          {query.length === 0 && recentLocations.map((loc, idx) => (
-            <button key={`${loc.name}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+          {query.length === 0 && recentLocations.map((loc) => (
+            <button key={loc.id} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Clock size={14} className="text-slate-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -266,8 +267,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Popular Locations</p>
             </div>
           )}
-          {query.length === 0 && popularLocations.slice(0, 5).map((loc, idx) => (
-            <button key={`${loc.name}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+          {query.length === 0 && popularLocations.slice(0, 5).map((loc) => (
+            <button key={loc.id} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Star size={14} className="text-amber-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -278,8 +279,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
 
           {/* Search Suggestions */}
           {query.length > 0 && suggestions.length > 0 ? (
-            suggestions.map((s, idx) => (
-              <button key={`${s.name}-${idx}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
+            suggestions.map((s) => (
+              <button key={s.id} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
                 <div className="flex justify-between items-start">
                   <p className="text-xs font-black text-slate-900">{s.name}</p>
                   <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{s.area}</p>
@@ -495,8 +496,8 @@ const CreateScreen: React.FC<any> = ({ user, errandForm, setErrandForm, postErra
           onChange={e => handleUpdate({ category: e.target.value as ErrandCategory, isInHouse: false, pickup: null, dropoff: null })} 
           className="w-full p-4 brand-input rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white border-2 border-slate-100"
         >
-          {Object.values(ErrandCategory).map((cat, idx) => (
-            <option key={`${cat}-${idx}`} value={cat}>{cat}</option>
+          {Object.values(ErrandCategory).map((cat) => (
+            <option key={cat} value={cat}>{cat}</option>
           ))}
         </select>
       </div>
@@ -1800,9 +1801,9 @@ export default function App() {
                 <button onClick={() => setActiveTab('menu')} className="text-[9px] font-black uppercase text-indigo-600 tracking-widest bg-indigo-50 px-3 py-1 rounded-full">Explore</button>
               </div>
               <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-                {Object.values(ErrandCategory).map((cat, idx) => (
+                {Object.values(ErrandCategory).map((cat) => (
                   <button 
-                    key={`${cat}-${idx}`}
+                    key={cat}
                     onClick={() => {
                       setErrandForm({ ...errandForm, category: cat });
                       setActiveTab('create');
@@ -1862,7 +1863,7 @@ export default function App() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {isLoadingErrands ? (
-                  [1,2].map(i => <ErrandCardSkeleton key={i} />)
+                  [1,2].map(i => <ErrandCardSkeleton key={`skeleton-recent-${i}`} />)
                 ) : errands.slice(0, 4).length === 0 ? (
                   <div className="col-span-full p-10 text-center bg-white rounded-3xl border-2 border-dashed border-slate-100 text-slate-300 font-black uppercase text-[9px] tracking-widest">No Recent Activity</div>
                 ) : (
@@ -1892,7 +1893,7 @@ export default function App() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {isLoadingErrands ? (
-                    [1,2,3,4].map(i => <ErrandCardSkeleton key={i} />)
+                    [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-errands-${i}`} />)
                   ) : errands.length === 0 ? (
                     <div className="col-span-full p-12 md:p-20 text-center bg-white rounded-[3rem] border border-slate-100 shadow-sm animate-in fade-in zoom-in-95">
                       <div className="w-24 h-24 bg-indigo-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6 relative overflow-hidden">
@@ -1956,7 +1957,7 @@ export default function App() {
             <MapView errands={filteredErrands} onSelectErrand={setSelectedErrand} height="300px" userLocation={currentLocation} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {isLoadingAvailable ? (
-                [1,2,3,4].map(i => <ErrandCardSkeleton key={i} />)
+                [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-filtered-${i}`} />)
               ) : filteredErrands.length === 0 ? (
                 <div className="col-span-full p-16 text-center bg-white rounded-[2rem] border border-slate-100 shadow-sm animate-in fade-in zoom-in-95">
                   <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
@@ -2821,7 +2822,7 @@ const AdminPanel: React.FC<{
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Runners</h3>
                 <div className="space-y-3">
                   {stats.topRunners?.map((r: any, i: number) => (
-                    <div key={`${r.id}-${i}`} className="flex items-center justify-between">
+                    <div key={r.id} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black text-slate-300">#{i+1}</span>
                         <p className="text-xs font-black text-slate-900">{r.name}</p>
@@ -2836,7 +2837,7 @@ const AdminPanel: React.FC<{
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Requesters</h3>
                 <div className="space-y-3">
                   {stats.topRequesters?.map((r: any, i: number) => (
-                    <div key={`${r.id}-${i}`} className="flex items-center justify-between">
+                    <div key={r.id} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black text-slate-300">#{i+1}</span>
                         <p className="text-xs font-black text-slate-900">{r.name}</p>
@@ -3013,7 +3014,7 @@ const AdminPanel: React.FC<{
                       onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})}
                       className="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
                     >
-                      {Object.values(UserRole).map((r, idx) => <option key={`${r}-${idx}`} value={r}>{r.toUpperCase()}</option>)}
+                      {Object.values(UserRole).map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -3153,7 +3154,7 @@ const AdminPanel: React.FC<{
                 onChange={e => setNewListing({...newListing, category: e.target.value as ErrandCategory})}
                 className="p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
               >
-                {Object.values(ErrandCategory).map((c, idx) => <option key={`${c}-${idx}`} value={c}>{c}</option>)}
+                {Object.values(ErrandCategory).map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
               <div className="flex items-center gap-3">
                 <button 
@@ -3220,7 +3221,7 @@ const AdminPanel: React.FC<{
                 onChange={e => setNewService({...newService, category: e.target.value as ErrandCategory})}
                 className="p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
               >
-                {Object.values(ErrandCategory).map((c, idx) => <option key={`${c}-${idx}`} value={c}>{c}</option>)}
+                {Object.values(ErrandCategory).map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
               <div className="flex items-center gap-3">
                 <button 
@@ -3628,7 +3629,7 @@ const RunnerApplicationFlow: React.FC<{ user: User, onBack: () => void }> = ({ u
         <div className="space-y-1.5">
           <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Category</label>
           <select value={form.categoryApplied} onChange={e => setForm({...form, categoryApplied: e.target.value as ErrandCategory})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-sm outline-none">
-            {Object.values(ErrandCategory).map((cat, idx) => <option key={`${cat}-${idx}`} value={cat}>{cat}</option>)}
+            {Object.values(ErrandCategory).map((cat) => <option key={cat} value={cat}>{cat}</option>)}
           </select>
         </div>
 

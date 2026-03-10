@@ -50,6 +50,7 @@ export interface Coordinates {
 }
 
 export interface LocationSuggestion {
+  id: string;
   name: string;
   coords: Coordinates;
   area?: string;

@@ -18,6 +18,17 @@
       },
       "required": ["id", "email", "name", "role"]
     },
+    "PublicUser": {
+      "title": "PublicUser",
+      "description": "Publicly accessible user info for lookups",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" }
+      },
+      "required": ["id", "email", "phone"]
+    },
     "Errand": {
       "title": "Errand",
       "description": "A task posted by a requester",
@@ -39,6 +50,10 @@
     "/users/{userId}": {
       "schema": "User",
       "description": "User profiles"
+    },
+    "/public_users/{userId}": {
+      "schema": "PublicUser",
+      "description": "Publicly accessible user info for lookups"
     },
     "/errands/{errandId}": {
       "schema": "Errand",

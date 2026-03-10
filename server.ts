@@ -34,6 +34,7 @@ let adminDb: admin.firestore.Firestore;
 try {
   if (firebaseConfig && !admin.apps.length) {
     admin.initializeApp({
+      credential: admin.credential.applicationDefault(),
       projectId: firebaseConfig.projectId,
     });
     console.log('Firebase Admin initialized with project:', firebaseConfig.projectId);
@@ -445,7 +446,7 @@ export async function createServer() {
           // 3. Try finding by phone in Firestore if still not found
           if (!uid && normalizedPhone) {
             try {
-              const userDocs = await adminDb.collection('users')
+              const userDocs = await adminDb.collection('public_users')
                 .where('phone', '==', normalizedPhone)
                 .limit(1)
                 .get();
@@ -461,7 +462,7 @@ export async function createServer() {
           // 4. Try finding by email in Firestore if still not found
           if (!uid && email) {
             try {
-              const userDocs = await adminDb.collection('users')
+              const userDocs = await adminDb.collection('public_users')
                 .where('email', '==', email)
                 .limit(1)
                 .get();
@@ -779,6 +780,24 @@ export async function createServer() {
   if (!(global as any).__backgroundTasksStarted) {
     (global as any).__backgroundTasksStarted = true;
     
+    // Migrate users
+    const migrateUsers = async () => {
+      if (!adminDb) return;
+      console.log('Migrating users to public_users...');
+      const users = await adminDb.collection('users').get();
+      for (const doc of users.docs) {
+        const data = doc.data();
+        if (data.email || data.phone) {
+          await adminDb.collection('public_users').doc(doc.id).set({
+            email: data.email || '',
+            phone: data.phone || ''
+          });
+        }
+      }
+      console.log('Migration complete.');
+    };
+    migrateUsers().catch(err => console.error("Migration failed", err));
+
     // Run checks every hour
     setInterval(() => {
       cancelStaleErrands();

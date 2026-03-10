@@ -247,6 +247,7 @@ class FirebaseService {
     };
     try {
       await setDoc(doc(db, 'users', id), newUser);
+      await setDoc(doc(db, 'public_users', id), { email, phone: normalized });
       await updateProfile(userCredential.user, { displayName: name });
       return newUser;
     } catch (error) {
