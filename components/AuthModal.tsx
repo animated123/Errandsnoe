@@ -76,6 +76,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
       }
       return { success: true, message: text };
     } catch (err: any) {
+      console.error('Fetch error:', err);
       if (err.name === 'AbortError') {
         throw new Error('Request timed out. Please check your connection and try again.');
       }

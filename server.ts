@@ -68,7 +68,7 @@ const cancelErrand = async (id: string) => {
 };
 
 // Helper for fetch with timeout
-const fetchWithTimeout = async (url: string, options: any, timeout = 5000) => {
+const fetchWithTimeout = async (url: string, options: any, timeout = 10000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
@@ -244,6 +244,7 @@ export async function createServer() {
   app.post('/api/auth/verify/send-package', async (req, res) => {
     console.log('Received verification request:', JSON.stringify(req.body));
     const { phone, email, type } = req.body;
+    console.log('Type:', type, 'Phone:', phone, 'Email:', email);
     if (type === 'phone' && !phone) return res.status(400).json({ error: 'Phone is required' });
     if (type === 'email' && !email) return res.status(400).json({ error: 'Email is required' });
     if (type === 'both' && (!phone || !email)) return res.status(400).json({ error: 'Phone and email are required' });
