@@ -1,0 +1,60 @@
+191:      const geminiSuggestions = data.map((d: any) => ({ 
+253:          {query.length === 0 && recentLocations.map((loc, idx) => (
+269:          {query.length === 0 && popularLocations.slice(0, 5).map((loc, idx) => (
+281:            suggestions.map((s, idx) => (
+483:    const newChecklist = currentChecklist.map((i: any) => 
+498:          {Object.values(ErrandCategory).map((cat, idx) => (
+666:                {['Water Availability', 'Security Level', 'Tiling & Finishing', 'Electricity/Tokens', 'Natural Lighting'].map(item => (
+844:                {[1, 2, 3].map(s => (
+884:        {categories.map(cat => (
+901:          filtered.map(item => (
+1176:              chat.messages.map((m: any, i: number) => (
+1750:                  {searchSuggestions.map((s) => (
+1803:                {Object.values(ErrandCategory).map((cat, idx) => (
+1832:                  featuredServices.map(service => (
+1865:                  [1,2].map(i => <ErrandCardSkeleton key={i} />)
+1869:                  errands.slice(0, 4).map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
+1895:                    [1,2,3,4].map(i => <ErrandCardSkeleton key={i} />)
+1912:                    errands.map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
+1959:                [1,2,3,4].map(i => <ErrandCardSkeleton key={i} />)
+1969:                filteredErrands.map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
+2526:        ].map((item) => (
+2665:      setApplications(prev => prev.map(a => a.id === app.id ? {...a, status: 'approved'} : a));
+2806:                {stats.revenuePerDay?.map((day: any) => (
+2810:                      style={{ height: `${Math.max(10, (day.amount / Math.max(...stats.revenuePerDay.map((d: any) => d.amount || 1))) * 100)}%` }}
+2823:                  {stats.topRunners?.map((r: any, i: number) => (
+2838:                  {stats.topRequesters?.map((r: any, i: number) => (
+2859:            applications.map(app => (
+2916:                {Object.values(UserRole).map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+2931:              .map(u => (
+3016:                      {Object.values(UserRole).map((r, idx) => <option key={`${r}-${idx}`} value={r}>{r.toUpperCase()}</option>)}
+3087:              ].map((env) => (
+3156:                {Object.values(ErrandCategory).map((c, idx) => <option key={`${c}-${idx}`} value={c}>{c}</option>)}
+3185:            {adminServiceListings.map(s => (
+3223:                {Object.values(ErrandCategory).map((c, idx) => <option key={`${c}-${idx}`} value={c}>{c}</option>)}
+3252:            {adminFeaturedServices.map(s => (
+3323:                supportChats.map(c => (
+3396:          chat.messages.map((m: any, i: number) => (
+3501:        {stages.map((stage, idx) => {
+3555:          {errands.map(e => (
+3631:            {Object.values(ErrandCategory).map((cat, idx) => <option key={`${cat}-${idx}`} value={cat}>{cat}</option>)}
+3703:          messages.map((m) => (
+3716:          {QUICK_REPLIES.map((reply, i) => (
+3761:          {Object.entries(notifSettings).map(([key, val]) => (
+3838:          {levels.map((l, idx) => (
+3853:                {l.benefits.map((b) => (
+3984:              {Object.entries(form.amenities).map(([key, val]) => (
+4031:              {listings.map(l => (
+4044:              {listings.map(l => (
+4050:              {listings.map(l => (
+4061:              {listings.map(l => (
+4074:              {listings.map(l => (
+4263:          {errands.map(e => (
+4552:            ].map(tab => (
+4601:                  {selectedErrand.priceRequests.map((req: any) => (
+4652:                  {selectedErrand.propertyListings.map((listing: any) => (
+4747:            <section className="space-y-4 animate-in fade-in zoom-in-95"><h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Why reassign?</h4><div className="space-y-2">{REASSIGN_REASONS.map((r) => (<button key={r} onClick={() => setReassignReason(r)} className={`w-full text-left p-4 rounded-2xl border-2 font-bold text-xs transition-all ${reassignReason === r ? 'border-black bg-slate-50' : 'border-slate-100'}`}>{r}</button>))}</div><div className="flex gap-3"><button onClick={() => setIsReassigning(false)} className="flex-1 py-4 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest">Cancel</button><button onClick={handleReassign} className="flex-1 py-4 bg-black text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">Confirm Reassign</button></div></section>
+4799:                          {selectedErrand.checklist.map((item: any, idx: number) => (
+4952:                        {selectedErrand.bids.map((b: any) => (
+5095:                    {selectedErrand.microSteps.map((step: any, idx: number) => (
+5181:                          {selectedErrand.proofs.map((proof: any, idx: number) => (

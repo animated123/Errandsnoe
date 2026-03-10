@@ -49,7 +49,7 @@ service cloud.firestore {
                       (!('isVerified' in request.resource.data) || request.resource.data.isVerified == false) &&
                       (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false);
       allow update: if (isOwner(userId) && 
-                        request.resource.data.role == resource.data.role && 
+                        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) && 
                         (!('phoneVerified' in request.resource.data) || request.resource.data.phoneVerified == resource.data.phoneVerified) &&
                         (!('isVerified' in request.resource.data) || request.resource.data.isVerified == resource.data.isVerified) &&
                         (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin)
