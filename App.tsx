@@ -2978,6 +2978,7 @@ const AdminPanel: React.FC<{
                   )}
                   <button 
                     onClick={async () => {
+                      console.log("Deleting user:", u.id);
                       if (confirm(`Are you sure you want to delete ${u.name}? This action cannot be undone.`)) {
                         try {
                           await firebaseService.adminDeleteUser(u.id);

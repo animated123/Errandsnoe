@@ -640,9 +640,9 @@ class FirebaseService {
   async adminDeleteUser(userId: string): Promise<void> {
     try {
       const response = await fetch(`/api/admin/users/${userId}/delete`, { method: 'POST' });
+      const text = await response.text();
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to delete user');
+        throw new Error(text || 'Failed to delete user');
       }
     } catch (error) {
       console.error('Delete user error:', error);
