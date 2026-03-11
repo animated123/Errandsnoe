@@ -650,15 +650,23 @@ export async function createServer() {
       if (!adminDb) return res.status(500).json({ error: 'Database service unavailable' });
       
       const { errandId, signature, rating } = req.body;
+      console.log(`Starting completion for errand: ${errandId}`);
       if (!errandId) return res.status(400).json({ error: 'Errand ID is required' });
 
       const errandDoc = await adminDb.collection('errands').doc(errandId).get();
-      if (!errandDoc.exists) return res.status(404).json({ error: 'Errand not found' });
+      if (!errandDoc.exists) {
+        console.error(`Errand not found: ${errandId}`);
+        return res.status(404).json({ error: 'Errand not found' });
+      }
       
       const errand = errandDoc.data() as any;
-      if (!errand.runnerId) return res.status(400).json({ error: 'Errand has no runner' });
+      if (!errand.runnerId) {
+        console.error(`Errand has no runner: ${errandId}`);
+        return res.status(400).json({ error: 'Errand has no runner' });
+      }
 
       const amount = errand.acceptedPrice || errand.budget || 0;
+      console.log(`Completing errand ${errandId}, amount: ${amount}, runner: ${errand.runnerId}`);
 
       // Update errand status
       await adminDb.collection('errands').doc(errandId).update({
@@ -667,6 +675,7 @@ export async function createServer() {
         completedAt: Date.now(),
         runnerRatingGiven: rating || 5
       });
+      console.log(`Errand ${errandId} status updated to COMPLETED`);
 
       // Update runner balance and notify
       const runnerDoc = await adminDb.collection('users').doc(errand.runnerId).get();
@@ -675,6 +684,7 @@ export async function createServer() {
         const newBalance = (runner.walletBalance || 0) + amount;
         const newCompleted = (runner.errandsCompleted || 0) + 1;
         
+        console.log(`Updating runner ${errand.runnerId} balance to ${newBalance}`);
         await adminDb.collection('users').doc(errand.runnerId).update({ 
           walletBalance: newBalance,
           errandsCompleted: newCompleted
@@ -682,8 +692,11 @@ export async function createServer() {
 
         if (runner.phone) {
           const message = `Dear ${runner.name}, your review for errand "${errand.title}" has been updated. Ksh ${amount} has been deposited to your errandsapp account. Your current balance is Ksh ${newBalance}.`;
+          console.log(`Sending completion SMS to ${runner.phone}`);
           sendSMS(runner.phone, message).catch(e => console.error("SMS failed", e));
         }
+      } else {
+        console.error(`Runner document not found: ${errand.runnerId}`);
       }
 
       res.json({ success: true });
