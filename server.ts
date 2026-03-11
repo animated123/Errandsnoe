@@ -698,19 +698,26 @@ export async function createServer() {
     try {
       if (!adminAuth || !adminDb) return res.status(500).json({ error: 'Admin service unavailable' });
       const { userId } = req.params;
+      console.log(`Starting deletion for user: ${userId}`);
       
       // Try to delete from Auth, but don't fail if user not found
       try {
+        console.log(`Attempting to delete from Auth: ${userId}`);
         await adminAuth.deleteUser(userId);
+        console.log(`Deleted from Auth: ${userId}`);
       } catch (error: any) {
         if (error.code !== 'auth/user-not-found') {
+          console.error(`Error deleting from Auth: ${error.message}`);
           throw error;
         }
         console.log(`User ${userId} not found in Auth, skipping Auth deletion`);
       }
       
+      console.log(`Attempting to delete from Firestore: ${userId}`);
       await adminDb.collection('users').doc(userId).delete();
       await adminDb.collection('public_users').doc(userId).delete();
+      console.log(`Deleted from Firestore: ${userId}`);
+      
       res.json({ success: true });
     } catch (error: any) {
       console.error('Delete user error:', error);
