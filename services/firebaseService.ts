@@ -626,7 +626,7 @@ class FirebaseService {
   async fetchAllUsers(): Promise<User[]> {
     try {
       const snapshot = await getDocs(collection(db, 'users'));
-      return snapshot.docs.map(d => d.data() as User);
+      return snapshot.docs.map(d => ({ id: d.id, ...d.data() as User }));
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, 'users');
       throw error;
@@ -639,9 +639,48 @@ class FirebaseService {
 
   async adminDeleteUser(userId: string): Promise<void> {
     try {
-      await deleteDoc(doc(db, 'users', userId));
+      const response = await fetch(`/api/admin/users/${userId}/delete`, { method: 'POST' });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete user');
+      }
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `users/${userId}`);
+      console.error('Delete user error:', error);
+      throw error;
+    }
+  }
+
+  async adminDisableUser(userId: string, disabled: boolean): Promise<void> {
+    try {
+      const response = await fetch(`/api/admin/users/${userId}/disable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled })
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to disable user');
+      }
+    } catch (error) {
+      console.error('Disable user error:', error);
+      throw error;
+    }
+  }
+
+  async adminChangeUserPassword(userId: string, password: string): Promise<void> {
+    try {
+      const response = await fetch(`/api/admin/users/${userId}/password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to change password');
+      }
+    } catch (error) {
+      console.error('Change password error:', error);
+      throw error;
     }
   }
 
@@ -721,7 +760,7 @@ class FirebaseService {
     try {
       const q = query(collection(db, 'users'), where('role', '==', UserRole.RUNNER), where('isOnline', '==', true));
       const snapshot = await getDocs(q);
-      return snapshot.docs.map(d => d.data() as User);
+      return snapshot.docs.map(d => ({ id: d.id, ...d.data() as User }));
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, 'users');
       throw error;

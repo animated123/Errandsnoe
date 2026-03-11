@@ -693,6 +693,57 @@ export async function createServer() {
     }
   });
 
+  // Admin User Management
+  app.post('/api/admin/users/:userId/delete', async (req, res) => {
+    try {
+      if (!adminAuth || !adminDb) return res.status(500).json({ error: 'Admin service unavailable' });
+      const { userId } = req.params;
+      
+      // Try to delete from Auth, but don't fail if user not found
+      try {
+        await adminAuth.deleteUser(userId);
+      } catch (error: any) {
+        if (error.code !== 'auth/user-not-found') {
+          throw error;
+        }
+        console.log(`User ${userId} not found in Auth, skipping Auth deletion`);
+      }
+      
+      await adminDb.collection('users').doc(userId).delete();
+      await adminDb.collection('public_users').doc(userId).delete();
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Delete user error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/admin/users/:userId/disable', async (req, res) => {
+    try {
+      if (!adminAuth) return res.status(500).json({ error: 'Admin service unavailable' });
+      const { userId } = req.params;
+      const { disabled } = req.body;
+      await adminAuth.updateUser(userId, { disabled });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Disable user error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/admin/users/:userId/password', async (req, res) => {
+    try {
+      if (!adminAuth) return res.status(500).json({ error: 'Admin service unavailable' });
+      const { userId } = req.params;
+      const { password } = req.body;
+      await adminAuth.updateUser(userId, { password });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Change password error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Detect production mode based on NODE_ENV or existence of dist folder
   const isProduction = process.env.NODE_ENV === 'production' || 
                       (typeof process.env.NODE_ENV === 'undefined' && 

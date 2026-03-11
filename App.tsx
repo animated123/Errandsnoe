@@ -251,8 +251,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recently Used</p>
             </div>
           )}
-          {query.length === 0 && recentLocations.map((loc) => (
-            <button key={loc.id} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+          {query.length === 0 && recentLocations.map((loc, idx) => (
+            <button key={loc.id || `${loc.name}-${loc.area}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Clock size={14} className="text-slate-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -267,8 +267,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Popular Locations</p>
             </div>
           )}
-          {query.length === 0 && popularLocations.slice(0, 5).map((loc) => (
-            <button key={loc.id} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+          {query.length === 0 && popularLocations.slice(0, 5).map((loc, idx) => (
+            <button key={loc.id || `${loc.name}-${loc.area}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Star size={14} className="text-amber-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -279,8 +279,8 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
 
           {/* Search Suggestions */}
           {query.length > 0 && suggestions.length > 0 ? (
-            suggestions.map((s) => (
-              <button key={s.id} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
+            suggestions.map((s, idx) => (
+              <button key={s.id || `${s.name}-${s.area}-${idx}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
                 <div className="flex justify-between items-start">
                   <p className="text-xs font-black text-slate-900">{s.name}</p>
                   <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{s.area}</p>
@@ -419,8 +419,8 @@ const CreateScreen: React.FC<any> = ({ user, errandForm, setErrandForm, postErra
       }
     } else if (newForm.category === ErrandCategory.GENERAL) {
       // Clear distance-based pricing if not applicable
-      newForm.distanceKm = undefined;
-      newForm.calculatedPrice = undefined;
+      newForm.distanceKm = 0;
+      newForm.calculatedPrice = 0;
     }
     
     setErrandForm(newForm); 
@@ -1174,8 +1174,8 @@ const SupportChatOverlay: React.FC<{ user: User }> = ({ user }) => {
                 </div>
               </div>
             ) : (
-              chat.messages.map((m: any, i: number) => (
-                <div key={m.id || i} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
+              chat.messages.map((m: any) => (
+                <div key={m.id} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
                   <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] font-medium leading-relaxed ${m.senderId === user.id ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
                     {m.text}
                   </div>
@@ -3046,6 +3046,41 @@ const AdminPanel: React.FC<{
                   >
                     Save Changes
                   </button>
+                  <div className="space-y-1.5 mt-4">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Change Password</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="password" 
+                        placeholder="New password" 
+                        className="flex-1 p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
+                        onBlur={(e) => {
+                          const password = e.target.value;
+                          if (password && confirm('Are you sure you want to change this user\'s password?')) {
+                            firebaseService.adminChangeUserPassword(editingUser.id, password).then(() => alert('Password changed successfully')).catch(e => alert(e.message));
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 mt-4">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Account Status</label>
+                    <button 
+                      onClick={async () => {
+                        const disabled = !editingUser.disabled;
+                        if (confirm(`Are you sure you want to ${disabled ? 'disable' : 'enable'} this account?`)) {
+                          await firebaseService.adminDisableUser(editingUser.id, disabled);
+                          const updated = await firebaseService.fetchAllUsers();
+                          setDbUsers(updated);
+                          setEditingUser({...editingUser, disabled});
+                          alert(`Account ${disabled ? 'disabled' : 'enabled'} successfully.`);
+                        }
+                      }}
+                      className={`w-full py-3 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all ${editingUser.disabled ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}
+                    >
+                      {editingUser.disabled ? 'Enable Account' : 'Disable Account'}
+                    </button>
+                  </div>
                   <button 
                     onClick={async () => {
                       if (confirm(`Are you sure you want to delete ${editingUser.name}? This action cannot be undone.`)) {
@@ -3061,7 +3096,7 @@ const AdminPanel: React.FC<{
                         }
                       }
                     }}
-                    className="w-full py-3 border border-red-100 text-red-500 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-50 transition-all mt-2"
+                    className="w-full py-3 border border-red-100 text-red-500 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-50 transition-all mt-4"
                   >
                     Delete User
                   </button>
@@ -4797,8 +4832,8 @@ const ErrandDetailScreen: React.FC<any> = ({
                       <div className="space-y-1.5">
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Visual Checklist</p>
                         <div className="grid grid-cols-1 gap-1">
-                          {selectedErrand.checklist.map((item: any, idx: number) => (
-                            <div key={item.item || idx} className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
+                          {selectedErrand.checklist.map((item: any) => (
+                            <div key={item.item} className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
                               {item.checked ? <CheckCircle2 size={12} className="text-emerald-500" /> : <div className="w-3 h-3 rounded-full border border-slate-200" />}
                               <span className={item.checked ? 'line-through opacity-50' : ''}>{item.item}</span>
                             </div>
@@ -5094,7 +5129,7 @@ const ErrandDetailScreen: React.FC<any> = ({
                   </div>
                   <div className="space-y-4">
                     {selectedErrand.microSteps.map((step: any, idx: number) => (
-                      <div key={step.label || idx} className="flex items-start gap-4 group">
+                      <div key={step.label} className="flex items-start gap-4 group">
                         <div className="flex flex-col items-center">
                           <button 
                             disabled={!isRunner || selectedErrand.status !== ErrandStatus.ACCEPTED}
@@ -5179,8 +5214,8 @@ const ErrandDetailScreen: React.FC<any> = ({
 
                       {selectedErrand.proofs && selectedErrand.proofs.length > 0 ? (
                         <div className="grid grid-cols-2 gap-3">
-                          {selectedErrand.proofs.map((proof: any, idx: number) => (
-                            <div key={proof.url || idx} className="space-y-1.5 group cursor-pointer" onClick={() => setFullScreenImage(proof.url)}>
+                          {selectedErrand.proofs.map((proof: any) => (
+                            <div key={proof.url} className="space-y-1.5 group cursor-pointer" onClick={() => setFullScreenImage(proof.url)}>
                               <div className="aspect-square rounded-2xl overflow-hidden border border-slate-100 shadow-sm relative">
                                 <img src={proof.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={proof.label} />
                                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2">
