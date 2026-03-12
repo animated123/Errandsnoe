@@ -12,9 +12,10 @@ service cloud.firestore {
     }
     function isAdmin() {
       return isAuthenticated() && 
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true ||
-         (request.auth.token.email == "ngugimaina4@gmail.com" && request.auth.token.email_verified == true));
+        (request.auth.token.email == "ngugimaina4@gmail.com" || 
+         request.auth.token.email == "admin@codexict.co.ke" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true));
     }
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
@@ -65,7 +66,8 @@ service cloud.firestore {
     match /errands/{errandId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidErrand(request.resource.data) && request.resource.data.requesterId == request.auth.uid;
-      allow update: if isAuthenticated(); 
+      // Allow any authenticated user to update an errand. This is permissive to resolve PERMISSION_DENIED errors.
+      allow update: if isAuthenticated();
       allow delete: if isAdmin();
     }
 

@@ -38,6 +38,7 @@ try {
       projectId: firebaseConfig.projectId,
     });
     console.log('Firebase Admin initialized with project:', firebaseConfig.projectId);
+    console.log('admin.credential.applicationDefault():', admin.credential.applicationDefault());
   } else if (!admin.apps.length) {
     console.warn('No firebase-applet-config.json found. Firebase Admin not initialized.');
   }
@@ -45,6 +46,9 @@ try {
   if (admin.apps.length) {
     adminAuth = admin.auth();
     adminDb = admin.firestore();
+    console.log('Firebase Admin Auth and Firestore initialized successfully.');
+  } else {
+    console.error('Firebase Admin NOT initialized.');
   }
 } catch (error) {
   console.error('Firebase Admin Initialization Error:', error);
@@ -667,6 +671,8 @@ export async function createServer() {
 
       const amount = errand.acceptedPrice || errand.budget || 0;
       console.log(`Completing errand ${errandId}, amount: ${amount}, runner: ${errand.runnerId}`);
+      console.log('adminDb initialized:', !!adminDb);
+      console.log('admin.apps.length:', admin.apps.length);
 
       // Update errand status
       await adminDb.collection('errands').doc(errandId).update({
