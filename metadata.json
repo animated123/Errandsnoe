@@ -1,5 +1,5 @@
 {
-  "name": "Errand - On-Demand",
+  "name": "errands",
   "description": "A comprehensive errands-on-demand platform where requesters can post tasks and runners can accept and complete them. Features real-time status updates and role-based views.",
   "requestFramePermissions": [
     "geolocation",

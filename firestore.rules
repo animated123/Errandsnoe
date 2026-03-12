@@ -15,7 +15,8 @@ service cloud.firestore {
         (request.auth.token.email == "ngugimaina4@gmail.com" || 
          request.auth.token.email == "admin@codexict.co.ke" ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true));
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true ||
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')));
     }
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
@@ -34,9 +35,10 @@ service cloud.firestore {
     }
 
     function isValidErrand(data) {
-      return hasRequiredFields(['id', 'category', 'title', 'description', 'budget', 'status', 'createdAt', 'requesterId']) &&
-             data.id is string && data.title is string && data.title.size() < 100 &&
-             data.description is string && data.description.size() < 2000;
+      // Basic validation for errand data
+      return data.id is string && 
+             data.requesterId is string &&
+             data.status is string;
     }
 
     // ===============================================================
@@ -51,23 +53,19 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
-                      request.resource.data.role == 'requester' && 
-                      (!('isVerified' in request.resource.data) || request.resource.data.isVerified == false) &&
-                      (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false);
-      allow update: if (isOwner(userId) && 
-                        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) && 
-                        (!('phoneVerified' in request.resource.data) || request.resource.data.phoneVerified == resource.data.phoneVerified) &&
-                        (!('isVerified' in request.resource.data) || request.resource.data.isVerified == resource.data.isVerified) &&
-                        (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin)
-                       ) || isAdmin();
+                      request.resource.data.role == 'requester';
+      allow update: if isOwner(userId) || isAdmin();
       allow delete: if isAdmin();
     }
 
     match /errands/{errandId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidErrand(request.resource.data) && request.resource.data.requesterId == request.auth.uid;
-      // Allow any authenticated user to update an errand. This is permissive to resolve PERMISSION_DENIED errors.
-      allow update: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.requesterId == request.auth.uid || 
+        resource.data.runnerId == request.auth.uid || 
+        isAdmin()
+      );
       allow delete: if isAdmin();
     }
 

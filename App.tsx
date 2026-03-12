@@ -27,7 +27,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 import BidModal from './components/BidModal';
 import AuthModal from './components/AuthModal';
 import ResetPasswordModal from './components/ResetPasswordModal';
-import PhoneVerificationModal from './components/PhoneVerificationModal';
+import VerificationModal from './components/VerificationModal';
 
 const callGeminiWithRetry = async (prompt: string, maxRetries = 3): Promise<string> => {
   if (typeof prompt !== 'string') return "";
@@ -252,7 +252,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
             </div>
           )}
           {query.length === 0 && recentLocations.map((loc, idx) => (
-            <button key={loc.id || `${loc.name}-${loc.area}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+            <button key={loc.id || `recent-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Clock size={14} className="text-slate-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -268,7 +268,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
             </div>
           )}
           {query.length === 0 && popularLocations.slice(0, 5).map((loc, idx) => (
-            <button key={loc.id || `${loc.name}-${loc.area}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+            <button key={loc.id || `popular-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Star size={14} className="text-amber-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -280,7 +280,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
           {/* Search Suggestions */}
           {query.length > 0 && suggestions.length > 0 ? (
             suggestions.map((s, idx) => (
-              <button key={s.id || `${s.name}-${s.area}-${idx}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
+              <button key={s.id || `suggestion-${idx}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
                 <div className="flex justify-between items-start">
                   <p className="text-xs font-black text-slate-900">{s.name}</p>
                   <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{s.area}</p>
@@ -1308,7 +1308,8 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
   const [resetToken, setResetToken] = useState<string | null>(null);
-  const [showPhoneVerificationModal, setShowPhoneVerificationModal] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationType, setVerificationType] = useState<'phone' | 'email' | 'both'>('both');
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showPriceGuideModal, setShowPriceGuideModal] = useState(false);
   const [showContactUsModal, setShowContactUsModal] = useState(false);
@@ -2199,7 +2200,14 @@ export default function App() {
                     user={user} 
                     onUpdate={(updates) => setUser({...user, ...updates})} 
                     onBack={() => setProfileView('main')} 
-                    onVerifyPhone={() => setShowPhoneVerificationModal(true)}
+                    onVerifyPhone={() => {
+                      setVerificationType('phone');
+                      setShowVerificationModal(true);
+                    }}
+                    onVerifyEmail={() => {
+                      setVerificationType('email');
+                      setShowVerificationModal(true);
+                    }}
                   />
                 )}
 
@@ -2251,7 +2259,7 @@ export default function App() {
           setShowAddPropertyModal={setShowAddPropertyModal}
           setShowComparisonModal={setShowComparisonModal}
           setShowAuthModal={setShowAuthModal}
-          setShowPhoneVerificationModal={setShowPhoneVerificationModal}
+          setShowVerificationModal={setShowVerificationModal}
           setAuthModalMode={setAuthModalMode}
         />
       )}
@@ -2319,10 +2327,11 @@ export default function App() {
         />
       )}
 
-      {showPhoneVerificationModal && user && (
-        <PhoneVerificationModal 
+      {showVerificationModal && user && (
+        <VerificationModal 
           user={user}
-          onClose={() => setShowPhoneVerificationModal(false)}
+          type={verificationType}
+          onClose={() => setShowVerificationModal(false)}
           onSuccess={async () => {
             const updated = await firebaseService.getCurrentUser();
             if (updated) setUser(updated);
@@ -4121,7 +4130,13 @@ const PropertyComparisonModal: React.FC<{ listings: PropertyListing[], onClose: 
   );
 };
 
-const ProfileEditor: React.FC<{ user: User, onUpdate: (updates: Partial<User>) => void, onBack: () => void, onVerifyPhone: () => void }> = ({ user, onUpdate, onBack, onVerifyPhone }) => {
+const ProfileEditor: React.FC<{ 
+  user: User, 
+  onUpdate: (updates: Partial<User>) => void, 
+  onBack: () => void, 
+  onVerifyPhone: () => void,
+  onVerifyEmail: () => void 
+}> = ({ user, onUpdate, onBack, onVerifyPhone, onVerifyEmail }) => {
   const [formData, setFormData] = useState({
     name: user.name,
     phone: user.phone || '',
@@ -4209,7 +4224,23 @@ const ProfileEditor: React.FC<{ user: User, onUpdate: (updates: Partial<User>) =
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email (Read-only)</label>
+          <div className="flex items-center justify-between ml-1">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Email (Read-only)</label>
+            {!user.emailVerified && (
+              <button 
+                type="button"
+                onClick={onVerifyEmail}
+                className="text-[9px] font-black text-indigo-600 uppercase tracking-widest hover:underline"
+              >
+                Verify Now
+              </button>
+            )}
+            {user.emailVerified && (
+              <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1">
+                <ShieldCheck size={10} /> Verified
+              </span>
+            )}
+          </div>
           <input 
             type="email" 
             value={user.email} 
@@ -4344,7 +4375,7 @@ const ErrandDetailScreen: React.FC<any> = ({
   selectedErrand, setSelectedErrand, user, setUser, refresh, 
   onRunnerComplete, onCompleteErrand, loading,
   setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal,
-  setShowPhoneVerificationModal, setAuthModalMode
+  setShowVerificationModal, setAuthModalMode
 }) => {
   if (!user) return null;
   
