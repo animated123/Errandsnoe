@@ -150,7 +150,7 @@ const sendSMS = async (recipient: string, message: string) => {
       },
       body: JSON.stringify({
         recipient: normalizedPhone,
-        sender_id: process.env.TALKSASA_SENDER_ID || 'TALK-SASA',
+        sender_id: process.env.TALKSASA_SENDER_I || 'TALK-SASA',
         type: 'plain',
         message: message
       })
