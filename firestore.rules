@@ -24,6 +24,11 @@ service cloud.firestore {
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
     }
+    function validString(field, min, max) {
+      return request.resource.data[field] is string && 
+             request.resource.data[field].size() >= min && 
+             request.resource.data[field].size() <= max;
+    }
 
     // ===============================================================
     // Domain Validators
@@ -31,14 +36,19 @@ service cloud.firestore {
     function isValidUser(data) {
       return hasRequiredFields(['id', 'email', 'name', 'role']) &&
              data.id is string && data.email is string && data.name is string &&
-             data.role in ['requester', 'runner', 'admin', 'tester'];
+             data.role in ['requester', 'runner', 'admin', 'tester'] &&
+             data.name.size() > 0 && data.name.size() < 100;
     }
 
     function isValidErrand(data) {
-      // Basic validation for errand data
-      return data.id is string && 
+      return hasRequiredFields(['id', 'title', 'description', 'budget', 'status', 'requesterId', 'createdAt']) &&
+             data.id is string && 
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 2000 &&
+             data.budget is number && data.budget >= 0 &&
+             data.status in ['pending', 'accepted', 'in-progress', 'verifying', 'completed', 'cancelled'] &&
              data.requesterId is string &&
-             data.status is string;
+             data.createdAt is number;
     }
 
     // ===============================================================
@@ -47,33 +57,36 @@ service cloud.firestore {
 
     match /public_users/{userId} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow write: if isAdmin() || isOwner(userId);
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      // PII Protection: Only owner or admin can read full profile
+      allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
                       request.resource.data.role == 'requester';
-      allow update: if isOwner(userId) || isAdmin();
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && 
+                        request.resource.data.role == resource.data.role) || isAdmin();
       allow delete: if isAdmin();
     }
 
     match /errands/{errandId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidErrand(request.resource.data) && request.resource.data.requesterId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidErrand(request.resource.data) && 
+                      request.resource.data.requesterId == request.auth.uid;
       allow update: if isAuthenticated() && (
-        resource.data.requesterId == request.auth.uid || 
-        resource.data.runnerId == request.auth.uid || 
+        (resource.data.requesterId == request.auth.uid && isValidErrand(request.resource.data)) || 
+        (resource.data.runnerId == request.auth.uid && isValidErrand(request.resource.data)) || 
         isAdmin()
       );
       allow delete: if isAdmin();
     }
 
     match /notifications/{notifId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.userId);
     }
 
     match /support_chats/{userId} {
@@ -102,9 +115,13 @@ service cloud.firestore {
     }
 
     match /runner_applications/{id} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || isOwner(resource.data.userId);
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow update: if isAdmin();
+    }
+    
+    match /password_resets/{token} {
+      allow read, write: if false; // Server-only collection
     }
   }
 }

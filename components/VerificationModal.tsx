@@ -35,7 +35,8 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ user, onClose, on
         body: JSON.stringify({ 
           phone: normalized, 
           email: email,
-          type: type
+          type: type,
+          checkExists: true
         })
       });
       const data = await response.json();

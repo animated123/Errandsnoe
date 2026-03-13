@@ -1,412 +1,355 @@
-      const geminiSuggestions = data.map((d: any) => ({ 
-        id: d.name.toLowerCase().replace(/\s+/g, '-'),
-        name: d.name, 
-        area: d.area,
-        description: d.description,
-        coords: { lat: d.lat, lng: d.lng } 
+189-      });
+190-      const data = JSON.parse(response.text || '[]');
+191:      const geminiSuggestions = data.map((d: any) => ({ 
+192-        id: d.name.toLowerCase().replace(/\s+/g, '-'),
+193-        name: d.name, 
 --
-          {query.length === 0 && recentLocations.map((loc) => (
-            <button key={loc.id || `${loc.name}-${loc.area}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
-              <Clock size={14} className="text-slate-400 mt-0.5" />
-              <div>
-                <p className="text-xs font-black text-slate-900">{loc.name}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase">{loc.area || 'Kenya'}</p>
+252-            </div>
+253-          )}
+254:          {query.length === 0 && recentLocations.map((loc, idx) => (
+255-            <button key={loc.id || `recent-${idx}-${loc.name}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+256-              <Clock size={14} className="text-slate-400 mt-0.5" />
 --
-          {query.length === 0 && popularLocations.slice(0, 5).map((loc) => (
-            <button key={loc.id || `${loc.name}-${loc.area}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
-              <Star size={14} className="text-amber-400 mt-0.5" />
-              <div>
-                <p className="text-xs font-black text-slate-900">{loc.name}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase">{loc.area || 'Kenya'}</p>
+268-            </div>
+269-          )}
+270:          {query.length === 0 && popularLocations.slice(0, 5).map((loc, idx) => (
+271-            <button key={loc.id || `popular-${idx}-${loc.name}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+272-              <Star size={14} className="text-amber-400 mt-0.5" />
 --
-            suggestions.map((s) => (
-              <button key={s.id || `${s.name}-${s.area}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
-                <div className="flex justify-between items-start">
-                  <p className="text-xs font-black text-slate-900">{s.name}</p>
-                  <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{s.area}</p>
-                </div>
+280-          {/* Search Suggestions */}
+281-          {query.length > 0 && suggestions.length > 0 ? (
+282:            suggestions.map((s, idx) => (
+283-              <button key={s.id || `suggestion-${idx}-${s.name}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
+284-                <div className="flex justify-between items-start">
 --
-    const newChecklist = currentChecklist.map((i: any) => 
-      i.item === item ? { ...i, checked: !i.checked } : i
-    );
-    handleUpdate({ checklist: newChecklist });
-  };
-
+482-      { item: 'Natural Lighting', checked: false }
+483-    ];
+484:    const newChecklist = currentChecklist.map((i: any) => 
+485-      i.item === item ? { ...i, checked: !i.checked } : i
+486-    );
 --
-          {Object.values(ErrandCategory).map((cat) => (
-            <option key={cat} value={cat}>{cat}</option>
-          ))}
-        </select>
-      </div>
-
+497-          className="w-full p-4 brand-input rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white border-2 border-slate-100"
+498-        >
+499:          {Object.values(ErrandCategory).map((cat) => (
+500-            <option key={cat} value={cat}>{cat}</option>
+501-          ))}
 --
-                {['Water Availability', 'Security Level', 'Tiling & Finishing', 'Electricity/Tokens', 'Natural Lighting'].map(item => (
-                  <button key={item} type="button" onClick={() => toggleChecklistItem(item)} className={`p-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-tight transition-all flex items-center gap-2 ${errandForm.checklist?.find((i: any) => i.item === item)?.checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>
-                    {errandForm.checklist?.find((i: any) => i.item === item)?.checked ? <Check size={10} /> : <Plus size={10} />}
-                    {item}
-                  </button>
-                ))}
+665-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Checklist Requirements</label>
+666-              <div className="grid grid-cols-2 gap-2">
+667:                {['Water Availability', 'Security Level', 'Tiling & Finishing', 'Electricity/Tokens', 'Natural Lighting'].map(item => (
+668-                  <button key={`checklist-${item}`} type="button" onClick={() => toggleChecklistItem(item)} className={`p-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-tight transition-all flex items-center gap-2 ${errandForm.checklist?.find((i: any) => i.item === item)?.checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>
+669-                    {errandForm.checklist?.find((i: any) => i.item === item)?.checked ? <Check size={10} /> : <Plus size={10} />}
 --
-                {[1, 2, 3].map(s => (
-                  <div key={s} className={`h-1 rounded-full transition-all ${step >= s ? 'w-6 bg-indigo-600' : 'w-2 bg-slate-100'}`} />
-                ))}
-              </div>
-            </div>
-          </div>
+843-              <h2 className="text-lg font-[900] text-slate-900">Post an Errand</h2>
+844-              <div className="flex items-center gap-2 mt-0.5">
+845:                {[1, 2, 3].map(s => (
+846-                  <div key={s} className={`h-1 rounded-full transition-all ${step >= s ? 'w-6 bg-indigo-600' : 'w-2 bg-slate-100'}`} />
+847-                ))}
 --
-        {categories.map(cat => (
-          <button 
-            key={cat} 
-            onClick={() => setActiveCategory(cat as any)}
-            className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${activeCategory === cat ? 'bg-black text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-100'}`}
-          >
+883-
+884-      <div className="flex gap-2 overflow-x-auto pb-2 px-2 no-scrollbar">
+885:        {categories.map(cat => (
+886-          <button 
+887-            key={cat} 
 --
-          filtered.map(item => (
-            <div 
-              key={item.id} 
-              onClick={() => setViewingListing(item)}
-              className="bg-white rounded-[2rem] p-4 border border-slate-100 shadow-sm flex gap-4 items-center animate-in fade-in slide-in-from-bottom-2 cursor-pointer hover:border-indigo-100 transition-all"
-            >
+900-          </div>
+901-        ) : (
+902:          filtered.map(item => (
+903-            <div 
+904-              key={item.id} 
 --
-              chat.messages.map((m: any) => (
-                <div key={m.id} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] font-medium leading-relaxed ${m.senderId === user.id ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
-                    {m.text}
-                  </div>
-                  <span className="text-[7px] font-black text-slate-400 uppercase mt-1 px-1">{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+1175-              </div>
+1176-            ) : (
+1177:              chat.messages.map((m: any) => (
+1178-                <div key={m.id} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
+1179-                  <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] font-medium leading-relaxed ${m.senderId === user.id ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
 --
-                  {searchSuggestions.map((s) => (
-                    <button 
-                      key={s}
-                      onClick={() => {
-                        setSearchQuery(s);
-                        setSearchSuggestions([]);
+1750-              {searchSuggestions.length > 0 && (
+1751-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-100 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+1752:                  {searchSuggestions.map((s) => (
+1753-                    <button 
+1754-                      key={s}
 --
-                {Object.values(ErrandCategory).map((cat) => (
-                  <button 
-                    key={cat}
-                    onClick={() => {
-                      setErrandForm({ ...errandForm, category: cat });
-                      setActiveTab('create');
+1803-              </div>
+1804-              <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+1805:                {Object.values(ErrandCategory).map((cat) => (
+1806-                  <button 
+1807-                    key={cat}
 --
-                  featuredServices.map(service => (
-                    <div 
-                      key={service.id} 
-                      onClick={() => setSelectedFeaturedService(service)}
-                      className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:border-indigo-100 transition-all group cursor-pointer"
-                    >
+1832-                  </div>
+1833-                ) : (
+1834:                  featuredServices.map(service => (
+1835-                    <div 
+1836-                      key={service.id} 
 --
-                  [1,2].map(i => <ErrandCardSkeleton key={`skeleton-recent-${i}`} />)
-                ) : errands.slice(0, 4).length === 0 ? (
-                  <div className="col-span-full p-10 text-center bg-white rounded-3xl border-2 border-dashed border-slate-100 text-slate-300 font-black uppercase text-[9px] tracking-widest">No Recent Activity</div>
-                ) : (
-                  errands.slice(0, 4).map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+1865-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+1866-                {isLoadingErrands ? (
+1867:                  [1,2].map(i => <ErrandCardSkeleton key={`skeleton-recent-${i}`} />)
+1868-                ) : errands.slice(0, 4).length === 0 ? (
+1869-                  <div className="col-span-full p-10 text-center bg-white rounded-3xl border-2 border-dashed border-slate-100 text-slate-300 font-black uppercase text-[9px] tracking-widest">No Recent Activity</div>
+1870-                ) : (
+1871:                  errands.slice(0, 4).map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
+1872-                )}
+1873-              </div>
 --
-                    [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-errands-${i}`} />)
-                  ) : errands.length === 0 ? (
-                    <div className="col-span-full p-12 md:p-20 text-center bg-white rounded-[3rem] border border-slate-100 shadow-sm animate-in fade-in zoom-in-95">
-                      <div className="w-24 h-24 bg-indigo-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6 relative overflow-hidden">
-                        <div className="absolute inset-0 bg-gradient-to-tr from-indigo-100 to-transparent opacity-50" />
-                        <Sparkles size={40} className="text-indigo-400 relative z-10" />
+1895-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+1896-                  {isLoadingErrands ? (
+1897:                    [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-errands-${i}`} />)
+1898-                  ) : errands.length === 0 ? (
+1899-                    <div className="col-span-full p-12 md:p-20 text-center bg-white rounded-[3rem] border border-slate-100 shadow-sm animate-in fade-in zoom-in-95">
 --
-                    errands.map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+1912-                    </div>
+1913-                  ) : (
+1914:                    errands.map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
+1915-                  )}
+1916-                </div>
 --
-                [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-filtered-${i}`} />)
-              ) : filteredErrands.length === 0 ? (
-                <div className="col-span-full p-16 text-center bg-white rounded-[2rem] border border-slate-100 shadow-sm animate-in fade-in zoom-in-95">
-                  <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <Search size={32} className="text-slate-200" />
-                  </div>
+1959-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+1960-              {isLoadingAvailable ? (
+1961:                [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-filtered-${i}`} />)
+1962-              ) : filteredErrands.length === 0 ? (
+1963-                <div className="col-span-full p-16 text-center bg-white rounded-[2rem] border border-slate-100 shadow-sm animate-in fade-in zoom-in-95">
 --
-                filteredErrands.map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
-              )}
-            </div>
-          </div>
-        )}
-        {activeTab === 'admin' && user && <AdminPanel 
+1969-                </div>
+1970-              ) : (
+1971:                filteredErrands.map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
+1972-              )}
+1973-            </div>
 --
-        ].map((item) => (
-          <div key={item.category} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-            <div>
-              <p className="text-xs font-black text-slate-900">{item.category}</p>
-              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{item.unit}</p>
-            </div>
+2534-          { category: 'Pet Walking', price: 'Ksh 400', unit: 'per hour' },
+2535-          { category: 'General Errands', price: 'Ksh 500', unit: 'base rate' }
+2536:        ].map((item) => (
+2537-          <div key={item.category} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+2538-            <div>
 --
-      setApplications(prev => prev.map(a => a.id === app.id ? {...a, status: 'approved'} : a));
-      alert("Application approved!");
-    } catch (e) { alert("Action failed"); }
-  };
-
-  const handleAddService = async () => {
+2673-    try {
+2674-      await firebaseService.updateRunnerApplicationStatus(app.id, app.userId, 'approved', app.categoryApplied);
+2675:      setApplications(prev => prev.map(a => a.id === app.id ? {...a, status: 'approved'} : a));
+2676-      alert("Application approved!");
+2677-    } catch (e) { alert("Action failed"); }
 --
-                {stats.revenuePerDay?.map((day: any) => (
-                  <div key={day.date} className="flex-1 flex flex-col items-center gap-2 group">
-                    <div 
-                      className="w-full bg-indigo-600 rounded-t-lg transition-all group-hover:bg-indigo-700" 
-                      style={{ height: `${Math.max(10, (day.amount / Math.max(...stats.revenuePerDay.map((d: any) => d.amount || 1))) * 100)}%` }}
-                    />
-                    <p className="text-[7px] font-black text-slate-400 uppercase rotate-45 mt-2">{day.date.split('/')[0]}/{day.date.split('/')[1]}</p>
-                  </div>
-                ))}
-              </div>
+2814-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Revenue (Last 7 Days)</h3>
+2815-              <div className="h-40 flex items-end gap-2">
+2816:                {stats.revenuePerDay?.map((day: any) => (
+2817-                  <div key={day.date} className="flex-1 flex flex-col items-center gap-2 group">
+2818-                    <div 
+2819-                      className="w-full bg-indigo-600 rounded-t-lg transition-all group-hover:bg-indigo-700" 
+2820:                      style={{ height: `${Math.max(10, (day.amount / Math.max(...stats.revenuePerDay.map((d: any) => d.amount || 1))) * 100)}%` }}
+2821-                    />
+2822-                    <p className="text-[7px] font-black text-slate-400 uppercase rotate-45 mt-2">{day.date.split('/')[0]}/{day.date.split('/')[1]}</p>
 --
-                  {stats.topRunners?.map((r: any, i: number) => (
-                    <div key={r.id} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black text-slate-300">#{i+1}</span>
-                        <p className="text-xs font-black text-slate-900">{r.name}</p>
-                      </div>
+2831-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Runners</h3>
+2832-                <div className="space-y-3">
+2833:                  {stats.topRunners?.map((r: any, i: number) => (
+2834-                    <div key={r.id} className="flex items-center justify-between">
+2835-                      <div className="flex items-center gap-2">
 --
-                  {stats.topRequesters?.map((r: any, i: number) => (
-                    <div key={r.id} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black text-slate-300">#{i+1}</span>
-                        <p className="text-xs font-black text-slate-900">{r.name}</p>
-                      </div>
+2846-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Requesters</h3>
+2847-                <div className="space-y-3">
+2848:                  {stats.topRequesters?.map((r: any, i: number) => (
+2849-                    <div key={r.id} className="flex items-center justify-between">
+2850-                      <div className="flex items-center gap-2">
 --
-            applications.map(app => (
-              <div key={app.id} className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm space-y-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-black text-slate-900">{app.fullName}</h3>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{app.categoryApplied} • {formatPhoneDisplay(app.phone)}</p>
+2867-            <div className="p-20 text-center bg-white rounded-[2rem] border-2 border-dashed border-slate-100 text-slate-300 font-black uppercase text-[10px] tracking-widest">No applications yet</div>
+2868-          ) : (
+2869:            applications.map(app => (
+2870-              <div key={app.id} className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm space-y-4">
+2871-                <div className="flex justify-between items-start">
 --
-                {Object.values(UserRole).map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
-              </select>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 gap-3">
+2924-              >
+2925-                <option value="all">All Roles</option>
+2926:                {Object.values(UserRole).map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+2927-              </select>
+2928-            </div>
 --
-              .map(u => (
-              <div key={u.id} className="bg-white rounded-[2rem] p-5 border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="relative">
-                    <img src={u.avatar || `https://i.pravatar.cc/150?u=${u.id}`} className="w-12 h-12 rounded-2xl object-cover border-2 border-slate-50" alt="" />
-                    <span className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${u.isOnline ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+2939-                return matchesSearch && matchesRole;
+2940-              })
+2941:              .map(u => (
+2942-              <div key={u.id} className="bg-white rounded-[2rem] p-5 border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+2943-                <div className="flex items-center gap-4">
 --
-                      {Object.values(UserRole).map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Verification Status</label>
-                    <div className="flex gap-2">
+3025-                      className="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
+3026-                    >
+3027:                      {Object.values(UserRole).map((r, idx) => <option key={`${r}-${idx}`} value={r}>{r.toUpperCase()}</option>)}
+3028-                    </select>
+3029-                  </div>
 --
-              ].map((env) => (
-                <div key={env.label} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{env.label}</span>
-                  <div className="flex items-center gap-2">
-                    {env.value ? (
-                      <div className="flex items-center gap-1 text-emerald-600">
+3131-                { label: 'TalkSasa Token', value: process.env.TALKSASA_TOKEN },
+3132-                { label: 'Resend API Key', value: process.env.RESEND_API_KEY },
+3133:              ].map((env) => (
+3134-                <div key={env.label} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+3135-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{env.label}</span>
 --
-                {Object.values(ErrandCategory).map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <div className="flex items-center gap-3">
-                <button 
-                  onClick={() => document.getElementById('listing-img')?.click()}
-                  className="flex-1 p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-bold text-xs flex items-center justify-center gap-2"
+3200-                className="p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
+3201-              >
+3202:                {Object.values(ErrandCategory).map((c) => <option key={c} value={c}>{c}</option>)}
+3203-              </select>
+3204-              <div className="flex items-center gap-3">
 --
-            {adminServiceListings.map(s => (
-              <div key={s.id} className="bg-white rounded-[2rem] p-4 border border-slate-100 shadow-sm flex gap-4 items-center">
-                <img src={s.imageUrl} className="w-16 h-16 rounded-xl object-cover border" alt="" />
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-black text-slate-900 text-xs truncate">{s.title}</h4>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{s.category} • KSh{s.price}</p>
+3229-
+3230-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+3231:            {adminServiceListings.map(s => (
+3232-              <div key={s.id} className="bg-white rounded-[2rem] p-4 border border-slate-100 shadow-sm flex gap-4 items-center">
+3233-                <img src={s.imageUrl} className="w-16 h-16 rounded-xl object-cover border" alt="" />
 --
-                {Object.values(ErrandCategory).map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <div className="flex items-center gap-3">
-                <button 
-                  onClick={() => document.getElementById('service-img')?.click()}
-                  className="flex-1 p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-bold text-xs flex items-center justify-center gap-2"
+3267-                className="p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
+3268-              >
+3269:                {Object.values(ErrandCategory).map((c) => <option key={c} value={c}>{c}</option>)}
+3270-              </select>
+3271-              <div className="flex items-center gap-3">
 --
-            {adminFeaturedServices.map(s => (
-              <div key={s.id} className="bg-white rounded-[2rem] p-4 border border-slate-100 shadow-sm flex gap-4 items-center">
-                <img src={s.imageUrl} className="w-20 h-20 rounded-2xl object-cover" alt={s.title} />
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-black text-slate-900 truncate">{s.title}</h4>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{s.category} • KSH {s.price}</p>
+3296-
+3297-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+3298:            {adminFeaturedServices.map(s => (
+3299-              <div key={s.id} className="bg-white rounded-[2rem] p-4 border border-slate-100 shadow-sm flex gap-4 items-center">
+3300-                <img src={s.imageUrl} className="w-20 h-20 rounded-2xl object-cover" alt={s.title} />
 --
-                supportChats.map(c => (
-                  <button 
-                    key={c.id} 
-                    onClick={() => setSelectedSupportUser(c.userId)}
-                    className={`w-full p-4 rounded-2xl text-left transition-all flex items-center justify-between ${selectedSupportUser === c.userId ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'hover:bg-slate-50'}`}
-                  >
+3367-                <div className="p-10 text-center opacity-20"><MessageSquare size={32} className="mx-auto mb-2" /><p className="text-[10px] font-black uppercase">No Chats</p></div>
+3368-              ) : (
+3369:                supportChats.map(c => (
+3370-                  <button 
+3371-                    key={c.id} 
 --
-          chat.messages.map((m: any, i: number) => (
-            <div key={m.id || `msg-${i}`} className={`flex flex-col ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[80%] p-4 rounded-2xl text-xs font-medium leading-relaxed ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'bg-indigo-600 text-white rounded-tr-none shadow-lg shadow-indigo-100' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
-                {m.text}
-              </div>
-              <span className="text-[8px] font-black text-slate-400 uppercase mt-1.5 px-1">{m.senderName} • {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+3440-          </div>
+3441-        ) : (
+3442:          chat.messages.map((m: any, i: number) => (
+3443-            <div key={m.id || `msg-${i}`} className={`flex flex-col ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'items-end' : 'items-start'}`}>
+3444-              <div className={`max-w-[80%] p-4 rounded-2xl text-xs font-medium leading-relaxed ${m.senderId === (isAdmin ? 'admin' : user.id) ? 'bg-indigo-600 text-white rounded-tr-none shadow-lg shadow-indigo-100' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
 --
-        {stages.map((stage, idx) => {
-          const isCompleted = idx < currentIndex;
-          const isCurrent = idx === currentIndex;
-          const isPending = idx > currentIndex;
-
-          return (
+3545-        />
+3546-
+3547:        {stages.map((stage, idx) => {
+3548-          const isCompleted = idx < currentIndex;
+3549-          const isCurrent = idx === currentIndex;
 --
-          {errands.map(e => (
-            <React.Fragment key={e.id}>
-              {e.pickupCoordinates && (
-                <AdvancedMarker 
-                  position={{ lat: e.pickupCoordinates.lat, lng: e.pickupCoordinates.lng }}
-                  onClick={() => onSelectErrand?.(e)}
+3599-            </AdvancedMarker>
+3600-          )}
+3601:          {errands.map(e => (
+3602-            <React.Fragment key={e.id}>
+3603-              {e.pickupCoordinates && (
 --
-            {Object.values(ErrandCategory).map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-          </select>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
+3675-          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Category</label>
+3676-          <select value={form.categoryApplied} onChange={e => setForm({...form, categoryApplied: e.target.value as ErrandCategory})} className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-sm outline-none">
+3677:            {Object.values(ErrandCategory).map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+3678-          </select>
+3679-        </div>
 --
-          messages.map((m) => (
-            <div key={m.id} className={`flex flex-col ${m.senderId === user?.id ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[80%] p-3 rounded-2xl text-xs font-medium ${m.senderId === user?.id ? 'bg-black text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
-                {m.text}
-              </div>
-              <span className="text-[8px] font-black text-slate-400 uppercase mt-1 px-1">{m.senderName} • {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+3747-          </div>
+3748-        ) : (
+3749:          messages.map((m) => (
+3750-            <div key={m.id} className={`flex flex-col ${m.senderId === user?.id ? 'items-end' : 'items-start'}`}>
+3751-              <div className={`max-w-[80%] p-3 rounded-2xl text-xs font-medium ${m.senderId === user?.id ? 'bg-black text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
 --
-          {QUICK_REPLIES.map((reply, i) => (
-            <button 
-              key={reply}
-              onClick={() => handleSend(undefined, reply)}
-              className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl text-[9px] font-bold whitespace-nowrap border border-slate-100 transition-colors"
-            >
+3760-      <div className="p-3 bg-white border-t space-y-3 shrink-0">
+3761-        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+3762:          {QUICK_REPLIES.map((reply, i) => (
+3763-            <button 
+3764-              key={reply}
 --
-          {Object.entries(notifSettings).map(([key, val]) => (
-            <div key={key} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
-              <span className="text-xs font-black uppercase tracking-tight text-slate-700">{key} Notifications</span>
-              <button 
-                onClick={() => handleToggleNotif(key as any)}
-                className={`w-12 h-6 rounded-full transition-all relative ${val ? 'bg-indigo-600' : 'bg-slate-200'}`}
+3805-        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Notifications</h3>
+3806-        <div className="space-y-2">
+3807:          {Object.entries(notifSettings).map(([key, val]) => (
+3808-            <div key={key} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+3809-              <span className="text-xs font-black uppercase tracking-tight text-slate-700">{key} Notifications</span>
 --
-          {levels.map((l, idx) => (
-            <div key={l.level} className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 ${l.color} text-white rounded-xl flex items-center justify-center shadow-lg shadow-slate-100`}><Sparkles size={20} /></div>
-                  <div>
+3882-        
+3883-        <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4 no-scrollbar">
+3884:          {levels.map((l, idx) => (
+3885-            <div key={l.level} className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
+3886-              <div className="flex items-center justify-between mb-4">
 --
-                {l.benefits.map((b) => (
-                  <div key={b} className="flex items-center gap-2">
-                    <div className="w-4 h-4 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center"><Check size={10} /></div>
-                    <p className="text-[10px] font-bold text-slate-600">{b}</p>
-                  </div>
-                ))}
+3897-              </div>
+3898-              <div className="space-y-2">
+3899:                {l.benefits.map((b) => (
+3900-                  <div key={b} className="flex items-center gap-2">
+3901-                    <div className="w-4 h-4 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center"><Check size={10} /></div>
 --
-              {Object.entries(form.amenities).map(([key, val]) => (
-                <button 
-                  key={key} 
-                  onClick={() => setForm({...form, amenities: {...form.amenities, [key]: !val}})}
-                  className={`p-3 rounded-xl border-2 flex items-center gap-2 transition-all ${val ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-slate-100 text-slate-400'}`}
-                >
+4028-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Amenities</label>
+4029-            <div className="grid grid-cols-2 gap-2">
+4030:              {Object.entries(form.amenities).map(([key, val]) => (
+4031-                <button 
+4032-                  key={key} 
 --
-              {listings.map(l => (
-                <th key={l.id} className="text-center py-4 border-b border-slate-100 px-4">
-                  <div className="space-y-2">
-                    <img src={l.imageUrl} className="w-24 h-24 rounded-2xl object-cover mx-auto shadow-md" />
-                    <p className="text-xs font-black text-slate-900">{l.title}</p>
-                  </div>
+4075-            <tr>
+4076-              <th className="text-left py-4 border-b border-slate-100 text-[10px] font-black uppercase text-slate-400">Feature</th>
+4077:              {listings.map(l => (
+4078-                <th key={l.id} className="text-center py-4 border-b border-slate-100 px-4">
+4079-                  <div className="space-y-2">
 --
-              {listings.map(l => (
-                <td key={l.id} className="text-center py-6 font-black text-emerald-600">Ksh {l.price}</td>
-              ))}
-            </tr>
-            <tr>
-              <td className="py-6 text-[10px] font-black uppercase text-slate-400">Agent Rating</td>
-              {listings.map(l => (
-                <td key={l.id} className="text-center py-6">
-                  <div className="flex items-center justify-center gap-1">
-                    <Star size={12} className="text-amber-400 fill-amber-400" />
-                    <span className="text-xs font-black">{l.agentRating}/5</span>
-                  </div>
+4088-            <tr>
+4089-              <td className="py-6 text-[10px] font-black uppercase text-slate-400">Rent</td>
+4090:              {listings.map(l => (
+4091-                <td key={l.id} className="text-center py-6 font-black text-emerald-600">Ksh {l.price}</td>
+4092-              ))}
 --
-              {listings.map(l => (
-                <td key={l.id} className="text-center py-6">
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {l.amenities.water && <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg" title="Water"><Droplets size={14} /></div>}
-                    {l.amenities.wifi && <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg" title="WiFi"><Wifi size={14} /></div>}
-                    {l.amenities.security && <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg" title="Security"><Shield size={14} /></div>}
+4094-            <tr>
+4095-              <td className="py-6 text-[10px] font-black uppercase text-slate-400">Agent Rating</td>
+4096:              {listings.map(l => (
+4097-                <td key={l.id} className="text-center py-6">
+4098-                  <div className="flex items-center justify-center gap-1">
 --
-              {listings.map(l => (
-                <td key={l.id} className="text-center py-6 px-4">
-                  <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic">"{l.description}"</p>
-                </td>
-              ))}
-            </tr>
+4105-            <tr>
+4106-              <td className="py-6 text-[10px] font-black uppercase text-slate-400">Amenities</td>
+4107:              {listings.map(l => (
+4108-                <td key={l.id} className="text-center py-6">
+4109-                  <div className="flex flex-wrap justify-center gap-2">
 --
-          {errands.map(e => (
-            <div key={e.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-              <div onClick={() => onSelectErrand(e)} className="cursor-pointer">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-black text-slate-900 group-hover:text-indigo-600 transition-colors">{e.title}</h3>
+4118-            <tr>
+4119-              <td className="py-6 text-[10px] font-black uppercase text-slate-400 align-top">Agent Notes</td>
+4120:              {listings.map(l => (
+4121-                <td key={l.id} className="text-center py-6 px-4">
+4122-                  <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic">"{l.description}"</p>
 --
-            ].map(tab => (
-              <button 
-                key={tab.id}
-                onClick={() => setActiveDetailTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 h-9 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap justify-center ${activeDetailTab === tab.id ? 'bg-black text-white shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-              >
+4329-      ) : (
+4330-        <div className="space-y-4">
+4331:          {errands.map(e => (
+4332-            <div key={e.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+4333-              <div onClick={() => onSelectErrand(e)} className="cursor-pointer">
 --
-                  {selectedErrand.priceRequests.map((req: any) => (
-                    <div key={req.id} className="bg-white p-3 rounded-xl border border-amber-100 flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] font-black text-slate-900">{req.itemName}</p>
-                        <p className="text-[8px] font-bold text-slate-400 uppercase">Ksh {req.originalPrice} → Ksh {req.newPrice}</p>
-                      </div>
+4618-              { id: 'chat', icon: MessageCircle, label: 'Chat' },
+4619-              { id: 'progress', icon: Activity, label: 'Progress' }
+4620:            ].map(tab => (
+4621-              <button 
+4622-                key={tab.id}
 --
-                  {selectedErrand.propertyListings.map((listing: any) => (
-                    <div key={listing.id} className="bg-white rounded-2xl overflow-hidden border border-indigo-100 shadow-sm group">
-                      <div className="aspect-video relative">
-                        <img src={listing.imageUrl} className="w-full h-full object-cover" />
-                        <div className="absolute top-3 right-3 px-3 py-1 bg-black/60 backdrop-blur-md text-white rounded-full text-[10px] font-black">
-                          Ksh {listing.price}
+4667-                <div className="space-y-2">
+4668-                  <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest ml-1">Price Adjustments</p>
+4669:                  {selectedErrand.priceRequests.map((req: any) => (
+4670-                    <div key={req.id} className="bg-white p-3 rounded-xl border border-amber-100 flex items-center justify-between">
+4671-                      <div>
 --
-            <section className="space-y-4 animate-in fade-in zoom-in-95"><h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Why reassign?</h4><div className="space-y-2">{REASSIGN_REASONS.map((r) => (<button key={r} onClick={() => setReassignReason(r)} className={`w-full text-left p-4 rounded-2xl border-2 font-bold text-xs transition-all ${reassignReason === r ? 'border-black bg-slate-50' : 'border-slate-100'}`}>{r}</button>))}</div><div className="flex gap-3"><button onClick={() => setIsReassigning(false)} className="flex-1 py-4 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest">Cancel</button><button onClick={handleReassign} className="flex-1 py-4 bg-black text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">Confirm Reassign</button></div></section>
-          ) : isRescheduling ? (
-            <section className="space-y-5 animate-in fade-in slide-in-from-bottom-2">
-              <h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Reschedule Errand</h4>
-              <div className="space-y-4">
-                <div className="space-y-1.5">
+4718-              {selectedErrand.propertyListings && selectedErrand.propertyListings.length > 0 ? (
+4719-                <div className="grid grid-cols-1 gap-4">
+4720:                  {selectedErrand.propertyListings.map((listing: any) => (
+4721-                    <div key={listing.id} className="bg-white rounded-2xl overflow-hidden border border-indigo-100 shadow-sm group">
+4722-                      <div className="aspect-video relative">
 --
-                          {selectedErrand.checklist.map((item: any) => (
-                            <div key={item.item} className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
-                              {item.checked ? <CheckCircle2 size={12} className="text-emerald-500" /> : <div className="w-3 h-3 rounded-full border border-slate-200" />}
-                              <span className={item.checked ? 'line-through opacity-50' : ''}>{item.item}</span>
-                            </div>
-                          ))}
+4813-            <>
+4814-          {isReassigning ? (
+4815:            <section className="space-y-4 animate-in fade-in zoom-in-95"><h4 className="text-sm font-black uppercase tracking-widest text-slate-900">Why reassign?</h4><div className="space-y-2">{REASSIGN_REASONS.map((r) => (<button key={r} onClick={() => setReassignReason(r)} className={`w-full text-left p-4 rounded-2xl border-2 font-bold text-xs transition-all ${reassignReason === r ? 'border-black bg-slate-50' : 'border-slate-100'}`}>{r}</button>))}</div><div className="flex gap-3"><button onClick={() => setIsReassigning(false)} className="flex-1 py-4 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest">Cancel</button><button onClick={handleReassign} className="flex-1 py-4 bg-black text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">Confirm Reassign</button></div></section>
+4816-          ) : isRescheduling ? (
+4817-            <section className="space-y-5 animate-in fade-in slide-in-from-bottom-2">
 --
-                        {selectedErrand.bids.map((b: any) => (
-                          <div key={`${b.runnerId}-${b.timestamp}`} className="bg-white border border-slate-100 p-4 rounded-2xl flex items-center justify-between shadow-sm">
-                            <div className="flex items-center gap-3">
-                              <img src={`https://ui-avatars.com/api/?name=${b.runnerName}&background=000&color=fff`} className="w-10 h-10 rounded-xl" />
-                              <div>
-                                <p className="text-sm font-black text-slate-900">{b.runnerName}</p>
+4865-                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Visual Checklist</p>
+4866-                        <div className="grid grid-cols-1 gap-1">
+4867:                          {selectedErrand.checklist.map((item: any) => (
+4868-                            <div key={item.item} className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
+4869-                              {item.checked ? <CheckCircle2 size={12} className="text-emerald-500" /> : <div className="w-3 h-3 rounded-full border border-slate-200" />}
 --
-                    {selectedErrand.microSteps.map((step: any, idx: number) => (
-                      <div key={step.label} className="flex items-start gap-4 group">
-                        <div className="flex flex-col items-center">
-                          <button 
-                            disabled={!isRunner || selectedErrand.status !== ErrandStatus.ACCEPTED}
-                            onClick={() => handleToggleMicroStep(idx, !step.completed)}
+5018-                    ) : (
+5019-                      <div className="grid grid-cols-1 gap-3">
+5020:                        {selectedErrand.bids.map((b: any) => (
+5021-                          <div key={`${b.runnerId}-${b.timestamp}`} className="bg-white border border-slate-100 p-4 rounded-2xl flex items-center justify-between shadow-sm">
+5022-                            <div className="flex items-center gap-3">
 --
-                          {selectedErrand.proofs.map((proof: any) => (
-                            <div key={proof.url} className="space-y-1.5 group cursor-pointer" onClick={() => setFullScreenImage(proof.url)}>
-                              <div className="aspect-square rounded-2xl overflow-hidden border border-slate-100 shadow-sm relative">
-                                <img src={proof.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={proof.label} />
-                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-                                  <p className="text-[8px] font-black text-white uppercase truncate">{proof.label}</p>
+5161-                  </div>
+5162-                  <div className="space-y-4">
+5163:                    {selectedErrand.microSteps.map((step: any, idx: number) => (
+5164-                      <div key={step.label} className="flex items-start gap-4 group">
+5165-                        <div className="flex flex-col items-center">
+--
+5247-                      {selectedErrand.proofs && selectedErrand.proofs.length > 0 ? (
+5248-                        <div className="grid grid-cols-2 gap-3">
+5249:                          {selectedErrand.proofs.map((proof: any) => (
+5250-                            <div key={proof.url} className="space-y-1.5 group cursor-pointer" onClick={() => setFullScreenImage(proof.url)}>
+5251-                              <div className="aspect-square rounded-2xl overflow-hidden border border-slate-100 shadow-sm relative">

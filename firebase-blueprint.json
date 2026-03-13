@@ -2,62 +2,63 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "Application user profile",
+      "description": "User profile information",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
         "email": { "type": "string" },
         "phone": { "type": "string" },
-        "role": { "type": "string", "enum": ["requester", "runner", "admin", "tester"] },
-        "isAdmin": { "type": "boolean" },
-        "isVerified": { "type": "boolean" },
-        "phoneVerified": { "type": "boolean" },
-        "rating": { "type": "number" },
-        "createdAt": { "type": "number" }
+        "role": { "type": "string", "enum": ["client", "runner", "admin"] },
+        "points": { "type": "number" },
+        "isRunner": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "email", "name", "role"]
-    },
-    "PublicUser": {
-      "title": "PublicUser",
-      "description": "Publicly accessible user info for lookups",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "email": { "type": "string" },
-        "phone": { "type": "string" }
-      },
-      "required": ["id", "email", "phone"]
+      "required": ["id", "name", "email", "role"]
     },
     "Errand": {
       "title": "Errand",
-      "description": "A task posted by a requester",
+      "description": "An errand task posted by a user",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
         "description": { "type": "string" },
-        "budget": { "type": "number" },
+        "category": { "type": "string" },
         "status": { "type": "string" },
-        "requesterId": { "type": "string" },
+        "clientId": { "type": "string" },
         "runnerId": { "type": "string" },
-        "createdAt": { "type": "number" }
+        "budget": { "type": "number" },
+        "acceptedPrice": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "title", "description", "budget", "status", "requesterId", "createdAt"]
+      "required": ["id", "title", "clientId", "status"]
+    },
+    "Application": {
+      "title": "Application",
+      "description": "Runner application",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] }
+      },
+      "required": ["id", "userId", "fullName", "status"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
-      "description": "User profiles"
-    },
-    "/public_users/{userId}": {
-      "schema": "PublicUser",
-      "description": "Publicly accessible user info for lookups"
+      "description": "User profile documents"
     },
     "/errands/{errandId}": {
       "schema": "Errand",
-      "description": "Task postings"
+      "description": "Errand task documents"
+    },
+    "/applications/{appId}": {
+      "schema": "Application",
+      "description": "Runner applications"
     }
   }
 }

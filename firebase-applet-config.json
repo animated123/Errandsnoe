@@ -1,8 +1,10 @@
 {
+  "projectId": "errands-auth",
+  "appId": "1:1020065538549:web:71ecd939b7168fa9fa00bc",
   "apiKey": "AIzaSyBSSrRhFZBtK-YRLCt0lfUuvG-zRJKZfLk",
   "authDomain": "errands-auth.firebaseapp.com",
-  "projectId": "errands-auth",
+  "firestoreDatabaseId": "ai-studio-6391c5f4-7e90-43e3-90b0-8a0e0e1ce265",
   "storageBucket": "errands-auth.firebasestorage.app",
   "messagingSenderId": "1020065538549",
-  "appId": "1:1020065538549:web:71ecd939b7168fa9fa00bc"
+  "measurementId": ""
 }

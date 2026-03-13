@@ -2,7 +2,9 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import admin from 'firebase-admin';
+import { initializeApp, getApps } from 'firebase-admin/app';
+import { Auth, getAuth } from 'firebase-admin/auth';
+import { Firestore, getFirestore } from 'firebase-admin/firestore';
 // import { firebaseService } from './services/firebaseService'; // Removed to prevent client SDK initialization in Node
 import { Resend } from 'resend';
 import { ErrandStatus } from './types';
@@ -25,59 +27,30 @@ const readConfig = () => {
 const firebaseConfig = readConfig();
 
 // Initialize Resend
-const EMAIL_FROM = process.env.RESEND_FROM || 'errands <noreply@codexict.co.ke>';
-const resend = (process.env.RESEND_API_KEY || 're_jZYRKqtN_KhYiBPZvhhX54d1PgfFLSY1u') ? new Resend(process.env.RESEND_API_KEY || 're_jZYRKqtN_KhYiBPZvhhX54d1PgfFLSY1u') : null;
-
-if (!resend) {
-  console.warn('RESEND_API_KEY not configured. Email notifications will be disabled.');
-}
-
-const sendEmail = async (to: string, subject: string, html: string) => {
-  if (!resend) {
-    console.warn('RESEND_API_KEY not configured, skipping Email');
-    return;
-  }
-
-  try {
-    const result = await resend.emails.send({
-      from: EMAIL_FROM,
-      to,
-      subject,
-      html
-    });
-
-    if (result.error) {
-      console.error('Resend Error:', result.error);
-      throw new Error(`Resend Error: ${result.error.message}`);
-    }
-    console.log(`Email sent to ${to}: ${subject}`);
-    return result;
-  } catch (error: any) {
-    console.error('Email Send Error:', error.message);
-    throw error;
-  }
-};
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // Initialize Firebase Admin
-let adminAuth: admin.auth.Auth;
-let adminDb: admin.firestore.Firestore;
+let adminAuth: Auth;
+let adminDb: Firestore;
 
 try {
-  if (firebaseConfig && !admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-      projectId: firebaseConfig.projectId,
+  if (firebaseConfig && !getApps().length) {
+    initializeApp({
+      projectId: firebaseConfig.projectId
     });
-    console.log('Firebase Admin initialized with project:', firebaseConfig.projectId);
-    console.log('admin.credential.applicationDefault():', admin.credential.applicationDefault());
-  } else if (!admin.apps.length) {
+    console.log(`Firebase Admin initialized for project: ${firebaseConfig.projectId}`);
+  } else if (!getApps().length) {
     console.warn('No firebase-applet-config.json found. Firebase Admin not initialized.');
   }
   
-  if (admin.apps.length) {
-    adminAuth = admin.auth();
-    adminDb = admin.firestore();
-    console.log('Firebase Admin Auth and Firestore initialized successfully.');
+  if (getApps().length) {
+    const app = getApps()[0]!;
+    adminAuth = getAuth(app);
+    // Use named database if provided in config
+    adminDb = firebaseConfig?.firestoreDatabaseId 
+      ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+      : getFirestore(app);
+    console.log(`Firebase Admin Auth and Firestore initialized successfully${firebaseConfig?.firestoreDatabaseId ? ' (using database: ' + firebaseConfig.firestoreDatabaseId + ')' : ''}.`);
   } else {
     console.error('Firebase Admin NOT initialized.');
   }
@@ -150,7 +123,7 @@ const sendSMS = async (recipient: string, message: string) => {
       },
       body: JSON.stringify({
         recipient: normalizedPhone,
-        sender_id: process.env.TALKSASA_SENDER_I || 'TALK-SASA',
+        sender_id: process.env.TALKSASA_SENDER_ID || 'TALK-SASA',
         type: 'plain',
         message: message
       })
@@ -190,76 +163,6 @@ export async function createServer() {
 
     try {
       await sendSMS(recipient, message);
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Email Notification Endpoints
-  app.post('/api/notifications/email', async (req, res) => {
-    const { to, subject, html } = req.body;
-    if (!to || !subject || !html) {
-      return res.status(400).json({ error: 'To, subject, and html are required' });
-    }
-
-    try {
-      await sendEmail(to, subject, html);
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.post('/api/notifications/welcome', async (req, res) => {
-    const { email, name } = req.body;
-    if (!email || !name) {
-      return res.status(400).json({ error: 'Email and name are required' });
-    }
-
-    try {
-      await sendEmail(
-        email,
-        'Welcome to Errands App!',
-        `
-          <div style="font-family: sans-serif; padding: 20px; color: #333;">
-            <h2 style="color: #4f46e5;">Welcome, ${name}!</h2>
-            <p>We're thrilled to have you join our community.</p>
-            <p>With Errands App, you can easily outsource your daily tasks or earn money by helping others.</p>
-            <div style="margin: 20px 0;">
-              <a href="${req.protocol}://${req.get('host')}" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Get Started</a>
-            </div>
-            <p style="font-size: 12px; color: #666; margin-top: 20px;">If you have any questions, just reply to this email.</p>
-          </div>
-        `
-      );
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.post('/api/notifications/errand-update', async (req, res) => {
-    const { email, errandTitle, status, message } = req.body;
-    if (!email || !errandTitle || !status) {
-      return res.status(400).json({ error: 'Email, errandTitle, and status are required' });
-    }
-
-    try {
-      await sendEmail(
-        email,
-        `Update on your errand: ${errandTitle}`,
-        `
-          <div style="font-family: sans-serif; padding: 20px; color: #333;">
-            <h2 style="color: #000;">Errand Update</h2>
-            <p>Your errand "<strong>${errandTitle}</strong>" has been updated to: <strong>${status}</strong></p>
-            ${message ? `<p>${message}</p>` : ''}
-            <div style="margin: 20px 0;">
-              <a href="${req.protocol}://${req.get('host')}/my-errands" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">View Errand</a>
-            </div>
-          </div>
-        `
-      );
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -408,20 +311,36 @@ export async function createServer() {
 
       // Send Email via Resend
       if (type === 'email' || type === 'both') {
-        promises.push(sendEmail(
-          email,
-          'Verify your account',
-          `
-            <div style="font-family: sans-serif; padding: 20px; color: #333;">
-              <h2 style="color: #000;">Verification Code</h2>
-              <p>Your verification code is:</p>
-              <div style="background: #f4f4f4; padding: 20px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; border-radius: 10px;">
-                ${emailCode}
+        if (resend) {
+          const from = process.env.RESEND_FROM || 'errands@codexict.solutions';
+          console.log(`Sending email from: ${from} to: ${email}`);
+          promises.push(resend.emails.send({
+            from,
+            to: email,
+            subject: 'Verify your account',
+            html: `
+              <div style="font-family: sans-serif; padding: 20px; color: #333;">
+                <h2 style="color: #000;">Verification Code</h2>
+                <p>Your verification code is:</p>
+                <div style="background: #f4f4f4; padding: 20px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; border-radius: 10px;">
+                  ${emailCode}
+                </div>
+                <p style="font-size: 12px; color: #666; margin-top: 20px;">This code expires in 5 minutes.</p>
               </div>
-              <p style="font-size: 12px; color: #666; margin-top: 20px;">This code expires in 5 minutes.</p>
-            </div>
-          `
-        ).catch(e => console.error('Verification email failed:', e.message)));
+            `
+          }).then(result => {
+            if (result.error) {
+              console.error('Resend Error:', result.error);
+              throw new Error(`Resend Error: ${result.error.message}`);
+            }
+            console.log('Verification email sent successfully');
+          }).catch(e => {
+            console.error('Email Send Error:', e.message);
+            // We don't rethrow here to allow the process to continue if one channel fails
+          }));
+        } else {
+          console.warn('RESEND_API_KEY not configured, skipping Email');
+        }
       }
 
       await Promise.all(promises);
@@ -675,23 +594,39 @@ export async function createServer() {
       });
 
       // Send email via Resend
+      if (!process.env.RESEND_API_KEY) {
+        console.warn('RESEND_API_KEY not configured, cannot send reset email');
+        return res.status(500).json({ error: 'Email service not configured' });
+      }
+
+      // Construct reset link (assuming frontend handles this route)
       const resetLink = `${req.protocol}://${req.get('host')}/reset-password?token=${token}`;
-      
-      await sendEmail(
-        email,
-        'Reset your password',
-        `
-          <div style="font-family: sans-serif; padding: 20px; color: #333;">
-            <h2 style="color: #000;">Password Reset Request</h2>
-            <p>You requested to reset your password. Click the link below to set a new password:</p>
-            <div style="margin: 20px 0;">
-              <a href="${resetLink}" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+      const from = process.env.RESEND_FROM || 'noreply@codexict.solutions';
+      console.log(`Sending reset email from: ${from} to: ${email}`);
+
+      await fetchWithTimeout('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from,
+          to: email,
+          subject: 'Reset your password',
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; color: #333;">
+              <h2 style="color: #000;">Password Reset Request</h2>
+              <p>You requested to reset your password. Click the link below to set a new password:</p>
+              <div style="margin: 20px 0;">
+                <a href="${resetLink}" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+              </div>
+              <p style="font-size: 12px; color: #666; margin-top: 20px;">This link will expire in 1 hour and can only be used once.</p>
+              <p style="font-size: 12px; color: #666;">If you did not request this, please ignore this email.</p>
             </div>
-            <p style="font-size: 12px; color: #666; margin-top: 20px;">This link will expire in 1 hour and can only be used once.</p>
-            <p style="font-size: 12px; color: #666;">If you did not request this, please ignore this email.</p>
-          </div>
-        `
-      );
+          `
+        })
+      });
 
       res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
     } catch (error: any) {

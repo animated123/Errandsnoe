@@ -113,7 +113,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
         body: JSON.stringify({ 
           phone: form.phone, 
           email: form.email,
-          type: otpType
+          type: otpType,
+          checkExists: isLogin // Only check if user exists during login
         })
       });
       if (data.error) throw new Error(data.error);

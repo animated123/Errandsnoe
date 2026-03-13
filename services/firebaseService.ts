@@ -18,9 +18,11 @@ import {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+
+// Initialize Firestore with named database if provided
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-});
+}, firebaseConfig.firestoreDatabaseId);
 
 async function testConnection() {
   try {
@@ -250,14 +252,6 @@ class FirebaseService {
       await setDoc(doc(db, 'users', id), newUser);
       await setDoc(doc(db, 'public_users', id), { email, phone: normalized });
       await updateProfile(userCredential.user, { displayName: name });
-      
-      // Send Welcome Email
-      fetch('/api/notifications/welcome', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, name })
-      }).catch(e => console.error('Failed to send welcome email:', e));
-
       return newUser;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `users/${id}`);
@@ -391,25 +385,7 @@ class FirebaseService {
 
   async updateErrand(id: string, updates: Partial<Errand>): Promise<void> {
     try {
-      const oldErrand = await this.fetchErrandById(id);
       await updateDoc(doc(db, 'errands', id), updates);
-      
-      // Send Errand Update Email if status changed
-      if (updates.status && oldErrand && updates.status !== oldErrand.status) {
-        const requester = await this.fetchUserById(oldErrand.requesterId);
-        if (requester && requester.email && requester.notificationSettings?.email) {
-          fetch('/api/notifications/errand-update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: requester.email,
-              errandTitle: oldErrand.title,
-              status: updates.status,
-              message: `Your errand status has been updated to ${updates.status}.`
-            })
-          }).catch(e => console.error('Failed to send errand update email:', e));
-        }
-      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `errands/${id}`);
     }

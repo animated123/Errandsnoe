@@ -252,7 +252,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
             </div>
           )}
           {query.length === 0 && recentLocations.map((loc, idx) => (
-            <button key={loc.id || `recent-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+            <button key={loc.id || `recent-${idx}-${loc.name}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Clock size={14} className="text-slate-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -268,7 +268,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
             </div>
           )}
           {query.length === 0 && popularLocations.slice(0, 5).map((loc, idx) => (
-            <button key={loc.id || `popular-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+            <button key={loc.id || `popular-${idx}-${loc.name}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Star size={14} className="text-amber-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -280,7 +280,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
           {/* Search Suggestions */}
           {query.length > 0 && suggestions.length > 0 ? (
             suggestions.map((s, idx) => (
-              <button key={s.id || `suggestion-${idx}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
+              <button key={s.id || `suggestion-${idx}-${s.name}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
                 <div className="flex justify-between items-start">
                   <p className="text-xs font-black text-slate-900">{s.name}</p>
                   <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{s.area}</p>
@@ -665,7 +665,7 @@ const CreateScreen: React.FC<any> = ({ user, errandForm, setErrandForm, postErra
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Checklist Requirements</label>
               <div className="grid grid-cols-2 gap-2">
                 {['Water Availability', 'Security Level', 'Tiling & Finishing', 'Electricity/Tokens', 'Natural Lighting'].map(item => (
-                  <button key={item} type="button" onClick={() => toggleChecklistItem(item)} className={`p-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-tight transition-all flex items-center gap-2 ${errandForm.checklist?.find((i: any) => i.item === item)?.checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>
+                  <button key={`checklist-${item}`} type="button" onClick={() => toggleChecklistItem(item)} className={`p-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-tight transition-all flex items-center gap-2 ${errandForm.checklist?.find((i: any) => i.item === item)?.checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>
                     {errandForm.checklist?.find((i: any) => i.item === item)?.checked ? <Check size={10} /> : <Plus size={10} />}
                     {item}
                   </button>
@@ -1235,9 +1235,14 @@ class ErrorBoundary extends React.Component<any, any> {
     if (this.state.hasError) {
       let errorMessage = "An unexpected error occurred.";
       try {
-        if (this.state.error?.message) {
-          const parsed = JSON.parse(this.state.error.message);
-          if (parsed.error) errorMessage = parsed.error;
+        const message = this.state.error?.message || "";
+        if (message.includes("Missing or insufficient permissions") || message.includes("PERMISSION_DENIED")) {
+          errorMessage = "Database access denied. This usually happens when security rules are being updated or your account lacks permissions. Please try again in a moment.";
+        } else {
+          try {
+            const parsed = JSON.parse(message);
+            if (parsed.error) errorMessage = parsed.error;
+          } catch (e) {}
         }
       } catch (e) {
         errorMessage = this.state.error?.message || errorMessage;
@@ -3024,7 +3029,7 @@ const AdminPanel: React.FC<{
                       onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})}
                       className="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
                     >
-                      {Object.values(UserRole).map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+                      {Object.values(UserRole).map((r, idx) => <option key={`${r}-${idx}`} value={r}>{r.toUpperCase()}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
