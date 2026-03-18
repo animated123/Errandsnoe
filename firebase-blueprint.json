@@ -9,10 +9,12 @@
         "name": { "type": "string" },
         "email": { "type": "string" },
         "phone": { "type": "string" },
-        "role": { "type": "string", "enum": ["client", "runner", "admin"] },
-        "points": { "type": "number" },
-        "isRunner": { "type": "boolean" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "role": { "type": "string", "enum": ["requester", "runner", "admin", "tester"] },
+        "isAdmin": { "type": "boolean" },
+        "isVerified": { "type": "boolean" },
+        "rating": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "walletBalance": { "type": "number" }
       },
       "required": ["id", "name", "email", "role"]
     },
@@ -25,26 +27,53 @@
         "title": { "type": "string" },
         "description": { "type": "string" },
         "category": { "type": "string" },
-        "status": { "type": "string" },
-        "clientId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "verifying", "completed", "cancelled"] },
+        "requesterId": { "type": "string" },
         "runnerId": { "type": "string" },
         "budget": { "type": "number" },
-        "acceptedPrice": { "type": "number" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "number" }
       },
-      "required": ["id", "title", "clientId", "status"]
+      "required": ["id", "title", "requesterId", "status"]
     },
-    "Application": {
-      "title": "Application",
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "type", "title", "message", "timestamp", "read"]
+    },
+    "RunnerApplication": {
+      "title": "RunnerApplication",
       "description": "Runner application",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "userId": { "type": "string" },
         "fullName": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] }
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "number" }
       },
-      "required": ["id", "userId", "fullName", "status"]
+      "required": ["id", "userId", "fullName", "status", "createdAt"]
+    },
+    "ServiceListing": {
+      "title": "ServiceListing",
+      "description": "Pre-defined service listing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" }
+      },
+      "required": ["id", "title", "price", "category"]
     }
   },
   "firestore": {
@@ -56,9 +85,25 @@
       "schema": "Errand",
       "description": "Errand task documents"
     },
-    "/applications/{appId}": {
-      "schema": "Application",
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/runner_applications/{applicationId}": {
+      "schema": "RunnerApplication",
       "description": "Runner applications"
+    },
+    "/service_listings/{listingId}": {
+      "schema": "ServiceListing",
+      "description": "Service listings"
+    },
+    "/settings/app": {
+      "schema": "object",
+      "description": "Global app settings"
+    },
+    "/public_users/{userId}": {
+      "schema": "object",
+      "description": "Publicly accessible user info (email/phone mapping)"
     }
   }
 }

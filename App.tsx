@@ -27,7 +27,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 import BidModal from './components/BidModal';
 import AuthModal from './components/AuthModal';
 import ResetPasswordModal from './components/ResetPasswordModal';
-import VerificationModal from './components/VerificationModal';
+import PhoneVerificationModal from './components/PhoneVerificationModal';
 
 const callGeminiWithRetry = async (prompt: string, maxRetries = 3): Promise<string> => {
   if (typeof prompt !== 'string') return "";
@@ -252,7 +252,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
             </div>
           )}
           {query.length === 0 && recentLocations.map((loc, idx) => (
-            <button key={loc.id || `recent-${idx}-${loc.name}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+            <button key={loc.id || `${loc.name}-${loc.area}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Clock size={14} className="text-slate-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -268,7 +268,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
             </div>
           )}
           {query.length === 0 && popularLocations.slice(0, 5).map((loc, idx) => (
-            <button key={loc.id || `popular-${idx}-${loc.name}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
+            <button key={loc.id || `${loc.name}-${loc.area}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
               <Star size={14} className="text-amber-400 mt-0.5" />
               <div>
                 <p className="text-xs font-black text-slate-900">{loc.name}</p>
@@ -280,7 +280,7 @@ const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, pla
           {/* Search Suggestions */}
           {query.length > 0 && suggestions.length > 0 ? (
             suggestions.map((s, idx) => (
-              <button key={s.id || `suggestion-${idx}-${s.name}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
+              <button key={s.id || `${s.name}-${s.area}-${idx}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
                 <div className="flex justify-between items-start">
                   <p className="text-xs font-black text-slate-900">{s.name}</p>
                   <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{s.area}</p>
@@ -665,7 +665,7 @@ const CreateScreen: React.FC<any> = ({ user, errandForm, setErrandForm, postErra
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Checklist Requirements</label>
               <div className="grid grid-cols-2 gap-2">
                 {['Water Availability', 'Security Level', 'Tiling & Finishing', 'Electricity/Tokens', 'Natural Lighting'].map(item => (
-                  <button key={`checklist-${item}`} type="button" onClick={() => toggleChecklistItem(item)} className={`p-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-tight transition-all flex items-center gap-2 ${errandForm.checklist?.find((i: any) => i.item === item)?.checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>
+                  <button key={item} type="button" onClick={() => toggleChecklistItem(item)} className={`p-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-tight transition-all flex items-center gap-2 ${errandForm.checklist?.find((i: any) => i.item === item)?.checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>
                     {errandForm.checklist?.find((i: any) => i.item === item)?.checked ? <Check size={10} /> : <Plus size={10} />}
                     {item}
                   </button>
@@ -1174,8 +1174,8 @@ const SupportChatOverlay: React.FC<{ user: User }> = ({ user }) => {
                 </div>
               </div>
             ) : (
-              chat.messages.map((m: any) => (
-                <div key={m.id} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
+              chat.messages.map((m: any, i: number) => (
+                <div key={m.id || `msg-${i}`} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
                   <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] font-medium leading-relaxed ${m.senderId === user.id ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
                     {m.text}
                   </div>
@@ -1235,14 +1235,9 @@ class ErrorBoundary extends React.Component<any, any> {
     if (this.state.hasError) {
       let errorMessage = "An unexpected error occurred.";
       try {
-        const message = this.state.error?.message || "";
-        if (message.includes("Missing or insufficient permissions") || message.includes("PERMISSION_DENIED")) {
-          errorMessage = "Database access denied. This usually happens when security rules are being updated or your account lacks permissions. Please try again in a moment.";
-        } else {
-          try {
-            const parsed = JSON.parse(message);
-            if (parsed.error) errorMessage = parsed.error;
-          } catch (e) {}
+        if (this.state.error?.message) {
+          const parsed = JSON.parse(this.state.error.message);
+          if (parsed.error) errorMessage = parsed.error;
         }
       } catch (e) {
         errorMessage = this.state.error?.message || errorMessage;
@@ -1313,8 +1308,7 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
   const [resetToken, setResetToken] = useState<string | null>(null);
-  const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [verificationType, setVerificationType] = useState<'phone' | 'email' | 'both'>('both');
+  const [showPhoneVerificationModal, setShowPhoneVerificationModal] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showPriceGuideModal, setShowPriceGuideModal] = useState(false);
   const [showContactUsModal, setShowContactUsModal] = useState(false);
@@ -2205,13 +2199,14 @@ export default function App() {
                     user={user} 
                     onUpdate={(updates) => setUser({...user, ...updates})} 
                     onBack={() => setProfileView('main')} 
-                    onVerifyPhone={() => {
-                      setVerificationType('phone');
-                      setShowVerificationModal(true);
-                    }}
-                    onVerifyEmail={() => {
-                      setVerificationType('email');
-                      setShowVerificationModal(true);
+                    onVerifyPhone={() => setShowPhoneVerificationModal(true)}
+                    onVerifyEmail={async () => {
+                      try {
+                        await firebaseService.sendEmailVerification();
+                        alert("Verification email sent! Please check your inbox.");
+                      } catch (e) {
+                        alert(formatFirebaseError(e));
+                      }
                     }}
                   />
                 )}
@@ -2264,7 +2259,7 @@ export default function App() {
           setShowAddPropertyModal={setShowAddPropertyModal}
           setShowComparisonModal={setShowComparisonModal}
           setShowAuthModal={setShowAuthModal}
-          setShowVerificationModal={setShowVerificationModal}
+          setShowPhoneVerificationModal={setShowPhoneVerificationModal}
           setAuthModalMode={setAuthModalMode}
         />
       )}
@@ -2332,11 +2327,10 @@ export default function App() {
         />
       )}
 
-      {showVerificationModal && user && (
-        <VerificationModal 
+      {showPhoneVerificationModal && user && (
+        <PhoneVerificationModal 
           user={user}
-          type={verificationType}
-          onClose={() => setShowVerificationModal(false)}
+          onClose={() => setShowPhoneVerificationModal(false)}
           onSuccess={async () => {
             const updated = await firebaseService.getCurrentUser();
             if (updated) setUser(updated);
@@ -2566,7 +2560,7 @@ const ContactUsModal: React.FC<{ onClose: () => void, setActiveTab: (t: string) 
       </div>
       <div className="p-2">
         <ProfileMenuItem icon={<MessageCircle size={18} />} label="Live Support Chat" onClick={() => { setActiveTab('support-chat'); onClose(); }} />
-        <ProfileMenuItem icon={<Mail size={18} />} label="Email Support" onClick={() => window.location.href = "mailto:errand.support@codexict.co.ke"} />
+        <ProfileMenuItem icon={<Mail size={18} />} label="Email Support" onClick={() => window.location.href = "mailto:Errands@codexict.co.ke"} />
         <ProfileMenuItem icon={<MessageCircle size={18} className="text-emerald-500" />} label="WhatsApp" onClick={() => window.open("https://wa.me/254722603149", "_blank")} />
         <ProfileMenuItem icon={<Phone size={18} className="text-indigo-500" />} label="Call Support" onClick={() => window.location.href = "tel:+254752269300"} />
       </div>
@@ -2615,7 +2609,7 @@ const AdminPanel: React.FC<{
   const logoFileRef = useRef<HTMLInputElement>(null);
   const iconFileRef = useRef<HTMLInputElement>(null);
 
-  const isSuperAdmin = user?.email === 'admin@codexict.co.ke' || user?.email === 'ngugimaina4@gmail.com';
+  const isSuperAdmin = user?.email === 'Errands@codexict.co.ke' || user?.email === 'ngugimaina4@gmail.com';
 
   useEffect(() => {
     setPrimaryColor(settings.primaryColor);
@@ -2978,7 +2972,7 @@ const AdminPanel: React.FC<{
                       Make Admin
                     </button>
                   )}
-                  {isSuperAdmin && u.isAdmin && u.email !== 'ngugimaina4@gmail.com' && u.email !== 'admin@codexict.co.ke' && (
+                  {isSuperAdmin && u.isAdmin && u.email !== 'ngugimaina4@gmail.com' && u.email !== 'Errands@codexict.co.ke' && (
                     <button 
                       onClick={() => {
                         if(confirm(`Remove Admin status from ${u.name}?`)) {
@@ -3029,7 +3023,7 @@ const AdminPanel: React.FC<{
                       onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})}
                       className="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-sm"
                     >
-                      {Object.values(UserRole).map((r, idx) => <option key={`${r}-${idx}`} value={r}>{r.toUpperCase()}</option>)}
+                      {Object.values(UserRole).map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -3135,6 +3129,7 @@ const AdminPanel: React.FC<{
                 { label: 'Gemini API Key', value: process.env.GEMINI_API_KEY || process.env.API_KEY },
                 { label: 'TalkSasa Token', value: process.env.TALKSASA_TOKEN },
                 { label: 'Resend API Key', value: process.env.RESEND_API_KEY },
+                { label: 'Resend From', value: process.env.RESEND_FROM },
               ].map((env) => (
                 <div key={env.label} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{env.label}</span>
@@ -3751,8 +3746,8 @@ const ChatSection: React.FC<{ errandId: string, messages: ChatMessage[], user: U
             <p className="text-[10px] font-bold uppercase">No messages yet</p>
           </div>
         ) : (
-          messages.map((m) => (
-            <div key={m.id} className={`flex flex-col ${m.senderId === user?.id ? 'items-end' : 'items-start'}`}>
+          messages.map((m, idx) => (
+            <div key={m.id || `msg-${idx}`} className={`flex flex-col ${m.senderId === user?.id ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[80%] p-3 rounded-2xl text-xs font-medium ${m.senderId === user?.id ? 'bg-black text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
                 {m.text}
               </div>
@@ -3766,7 +3761,7 @@ const ChatSection: React.FC<{ errandId: string, messages: ChatMessage[], user: U
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
           {QUICK_REPLIES.map((reply, i) => (
             <button 
-              key={reply}
+              key={`${reply}-${i}`}
               onClick={() => handleSend(undefined, reply)}
               className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl text-[9px] font-bold whitespace-nowrap border border-slate-100 transition-colors"
             >
@@ -3901,8 +3896,8 @@ const LoyaltyBenefitsModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                 </div>
               </div>
               <div className="space-y-2">
-                {l.benefits.map((b) => (
-                  <div key={b} className="flex items-center gap-2">
+                {l.benefits.map((b, bIdx) => (
+                  <div key={`${b}-${bIdx}`} className="flex items-center gap-2">
                     <div className="w-4 h-4 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center"><Check size={10} /></div>
                     <p className="text-[10px] font-bold text-slate-600">{b}</p>
                   </div>
@@ -4150,6 +4145,25 @@ const ProfileEditor: React.FC<{
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  const handleVerifyEmail = async () => {
+    setIsVerifying(true);
+    try {
+      await onVerifyEmail();
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleVerifyPhone = async () => {
+    setIsVerifying(true);
+    try {
+      await onVerifyPhone();
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -4234,10 +4248,11 @@ const ProfileEditor: React.FC<{
             {!user.emailVerified && (
               <button 
                 type="button"
-                onClick={onVerifyEmail}
-                className="text-[9px] font-black text-indigo-600 uppercase tracking-widest hover:underline"
+                onClick={handleVerifyEmail}
+                disabled={isVerifying}
+                className="text-[9px] font-black text-indigo-600 uppercase tracking-widest hover:underline flex items-center gap-1"
               >
-                Verify Now
+                {isVerifying ? <Loader2 size={10} className="animate-spin" /> : 'Verify Now'}
               </button>
             )}
             {user.emailVerified && (
@@ -4260,10 +4275,11 @@ const ProfileEditor: React.FC<{
             {user.phone && !user.phoneVerified && (
               <button 
                 type="button"
-                onClick={onVerifyPhone}
-                className="text-[9px] font-black text-indigo-600 uppercase tracking-widest hover:underline"
+                onClick={handleVerifyPhone}
+                disabled={isVerifying}
+                className="text-[9px] font-black text-indigo-600 uppercase tracking-widest hover:underline flex items-center gap-1"
               >
-                Verify Now
+                {isVerifying ? <Loader2 size={10} className="animate-spin" /> : 'Verify Now'}
               </button>
             )}
             {user.phoneVerified && (
@@ -4380,7 +4396,7 @@ const ErrandDetailScreen: React.FC<any> = ({
   selectedErrand, setSelectedErrand, user, setUser, refresh, 
   onRunnerComplete, onCompleteErrand, loading,
   setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal,
-  setShowVerificationModal, setAuthModalMode
+  setShowPhoneVerificationModal, setAuthModalMode
 }) => {
   if (!user) return null;
   
@@ -4869,8 +4885,8 @@ const ErrandDetailScreen: React.FC<any> = ({
                       <div className="space-y-1.5">
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Visual Checklist</p>
                         <div className="grid grid-cols-1 gap-1">
-                          {selectedErrand.checklist.map((item: any) => (
-                            <div key={item.item} className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
+                          {selectedErrand.checklist.map((item: any, idx: number) => (
+                            <div key={`${item.item}-${idx}`} className="flex items-center gap-2 text-[10px] font-bold text-slate-600">
                               {item.checked ? <CheckCircle2 size={12} className="text-emerald-500" /> : <div className="w-3 h-3 rounded-full border border-slate-200" />}
                               <span className={item.checked ? 'line-through opacity-50' : ''}>{item.item}</span>
                             </div>
@@ -5166,7 +5182,7 @@ const ErrandDetailScreen: React.FC<any> = ({
                   </div>
                   <div className="space-y-4">
                     {selectedErrand.microSteps.map((step: any, idx: number) => (
-                      <div key={step.label} className="flex items-start gap-4 group">
+                      <div key={`${step.label}-${idx}`} className="flex items-start gap-4 group">
                         <div className="flex flex-col items-center">
                           <button 
                             disabled={!isRunner || selectedErrand.status !== ErrandStatus.ACCEPTED}

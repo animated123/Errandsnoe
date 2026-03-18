@@ -345,9 +345,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
                             <button 
                               onClick={() => handleVerifyStep('sms')} 
                               disabled={loading}
-                              className="flex-1 py-3 bg-black text-white rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all"
+                              className="flex-1 py-3 bg-black text-white rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2"
                             >
-                              Verify SMS
+                              {loading ? <Loader2 size={14} className="animate-spin" /> : 'Verify SMS'}
                             </button>
                             <button 
                               disabled={smsResendTimer > 0 || loading} 
@@ -389,9 +389,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
                             <button 
                               onClick={() => handleVerifyStep('email')} 
                               disabled={loading}
-                              className="flex-1 py-3 bg-black text-white rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all"
+                              className="flex-1 py-3 bg-black text-white rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2"
                             >
-                              Verify Email
+                              {loading ? <Loader2 size={14} className="animate-spin" /> : 'Verify Email'}
                             </button>
                             <button 
                               disabled={emailResendTimer > 0 || loading} 

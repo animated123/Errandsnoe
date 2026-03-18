@@ -2,11 +2,11 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { initializeApp, getApps } from 'firebase-admin/app';
-import { Auth, getAuth } from 'firebase-admin/auth';
-import { Firestore, getFirestore } from 'firebase-admin/firestore';
+import admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+// import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 // import { firebaseService } from './services/firebaseService'; // Removed to prevent client SDK initialization in Node
-import { Resend } from 'resend';
 import { ErrandStatus } from './types';
 
 console.log('--- Server Process Starting ---');
@@ -26,31 +26,98 @@ const readConfig = () => {
 
 const firebaseConfig = readConfig();
 
-// Initialize Resend
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+// Initialize Email Configuration
+const emailFrom = process.env.SMTP_FROM || process.env.RESEND_FROM || 'Errands@codexict.co.ke';
+
+// Initialize SMTP
+const smtpConfig = {
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+};
+
+const transporter = smtpConfig.host ? nodemailer.createTransport(smtpConfig) : null;
+
+if (transporter) {
+  console.log('SMTP initialized successfully with host:', smtpConfig.host);
+  console.log('Email From Address:', emailFrom);
+} else {
+  console.warn('SMTP not configured (SMTP_HOST missing). Email sending will fail.');
+}
+
+/**
+ * Generic email sender using SMTP
+ */
+const sendEmail = async ({ to, subject, html }: { to: string, subject: string, html: string }) => {
+  if (transporter) {
+    console.log(`Attempting to send email to ${to} using SMTP...`);
+    try {
+      const info = await transporter.sendMail({
+        from: emailFrom,
+        to,
+        subject,
+        html,
+      });
+      console.log('SMTP Email Sent:', info.messageId);
+      return info;
+    } catch (error) {
+      console.error('SMTP Send Error:', error);
+      throw error;
+    }
+  } else {
+    console.error('No email provider configured (SMTP_HOST missing).');
+    return null;
+  }
+};
 
 // Initialize Firebase Admin
-let adminAuth: Auth;
-let adminDb: Firestore;
+let adminAuth: admin.auth.Auth;
+let adminDb: admin.firestore.Firestore;
 
 try {
-  if (firebaseConfig && !getApps().length) {
-    initializeApp({
-      projectId: firebaseConfig.projectId
+  if (firebaseConfig && !admin.apps.length) {
+    // In Cloud Run, applicationDefault() picks up the service account.
+    // We only pass projectId if it's explicitly different from the environment.
+    const projectId = firebaseConfig.projectId;
+    console.log('Initializing Firebase Admin with Project ID:', projectId);
+    console.log('Environment Project ID:', process.env.GOOGLE_CLOUD_PROJECT || 'Not set');
+    
+    admin.initializeApp({
+      credential: admin.credential.applicationDefault(),
     });
-    console.log(`Firebase Admin initialized for project: ${firebaseConfig.projectId}`);
-  } else if (!getApps().length) {
+    console.log('Firebase Admin initialized with default credentials.');
+    console.log('App Project ID:', admin.app().options.projectId);
+  } else if (!admin.apps.length) {
     console.warn('No firebase-applet-config.json found. Firebase Admin not initialized.');
   }
   
-  if (getApps().length) {
-    const app = getApps()[0]!;
-    adminAuth = getAuth(app);
-    // Use named database if provided in config
-    adminDb = firebaseConfig?.firestoreDatabaseId 
-      ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-      : getFirestore(app);
-    console.log(`Firebase Admin Auth and Firestore initialized successfully${firebaseConfig?.firestoreDatabaseId ? ' (using database: ' + firebaseConfig.firestoreDatabaseId + ')' : ''}.`);
+  if (admin.apps.length) {
+    adminAuth = admin.auth();
+    // Initialize Firestore with the default app and the named database if provided
+    const dbId = firebaseConfig?.firestoreDatabaseId;
+    console.log('Initializing Firestore with Database ID:', dbId || '(default)');
+    
+    try {
+      adminDb = dbId 
+        ? getFirestore(admin.app(), dbId)
+        : getFirestore();
+      // Test the connection to the database
+      await adminDb.collection('health_check').limit(1).get();
+      console.log('Firebase Admin Auth and Firestore initialized successfully.');
+    } catch (dbError: any) {
+      console.error(`Failed to initialize Firestore with database ID "${dbId}":`, dbError.message);
+      if (dbId) {
+        console.log('Falling back to (default) database...');
+        adminDb = getFirestore();
+        console.log('Firebase Admin Auth and Firestore (default) initialized.');
+      } else {
+        throw dbError;
+      }
+    }
   } else {
     console.error('Firebase Admin NOT initialized.');
   }
@@ -149,7 +216,6 @@ export async function createServer() {
       status: 'pong', 
       timestamp: Date.now(),
       firebaseAdmin: !!admin.apps.length,
-      resend: !!resend,
       talksasa: !!process.env.TALKSASA_TOKEN
     });
   });
@@ -230,9 +296,9 @@ export async function createServer() {
       `VITE_CLOUDINARY_UPLOAD_PRESET=${process.env.VITE_CLOUDINARY_UPLOAD_PRESET || ''}`,
       `TALKSASA_TOKEN=${process.env.TALKSASA_TOKEN || ''}`,
       `TALKSASA_SENDER_ID=${process.env.TALKSASA_SENDER_ID || ''}`,
+      `GOOGLE_MAPS_API_KEY=${process.env.GOOGLE_MAPS_API_KEY || ''}`,
       `RESEND_API_KEY=${process.env.RESEND_API_KEY || ''}`,
       `RESEND_FROM=${process.env.RESEND_FROM || ''}`,
-      `GOOGLE_MAPS_API_KEY=${process.env.GOOGLE_MAPS_API_KEY || ''}`,
       `GEMINI_API_KEY=${process.env.GEMINI_API_KEY || process.env.API_KEY || ''}`
     ].join('\n');
 
@@ -287,6 +353,28 @@ export async function createServer() {
 
       const promises = [];
 
+      // Send Email
+      if ((type === 'email' || type === 'both') && email) {
+        promises.push(sendEmail({
+          to: email,
+          subject: 'Verification Code - ErrandsApp',
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+              <h2 style="color: #4f46e5; margin-bottom: 20px;">Verify your email</h2>
+              <p style="font-size: 16px; color: #374151;">Your verification code for ErrandsApp is:</p>
+              <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
+                <span style="font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #111827;">${emailCode}</span>
+              </div>
+              <p style="font-size: 14px; color: #6b7280;">This code will expire in 5 minutes. If you didn't request this, please ignore this email.</p>
+              <hr style="margin: 30px 0; border: 0; border-top: 1px solid #eee;" />
+              <p style="font-size: 12px; color: #9ca3af; text-align: center;">&copy; ${new Date().getFullYear()} ErrandsApp. All rights reserved.</p>
+            </div>
+          `
+        }).catch(e => {
+          console.error('Email Send Error Details:', e);
+        }));
+      }
+
       // Send SMS via TalkSasa
       if (type === 'phone' || type === 'both') {
         if (process.env.TALKSASA_TOKEN) {
@@ -306,40 +394,6 @@ export async function createServer() {
           }).catch(e => console.error('SMS Send Error:', e.message)));
         } else {
           console.warn('TALKSASA_TOKEN not configured, skipping SMS');
-        }
-      }
-
-      // Send Email via Resend
-      if (type === 'email' || type === 'both') {
-        if (resend) {
-          const from = process.env.RESEND_FROM || 'errands@codexict.solutions';
-          console.log(`Sending email from: ${from} to: ${email}`);
-          promises.push(resend.emails.send({
-            from,
-            to: email,
-            subject: 'Verify your account',
-            html: `
-              <div style="font-family: sans-serif; padding: 20px; color: #333;">
-                <h2 style="color: #000;">Verification Code</h2>
-                <p>Your verification code is:</p>
-                <div style="background: #f4f4f4; padding: 20px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; border-radius: 10px;">
-                  ${emailCode}
-                </div>
-                <p style="font-size: 12px; color: #666; margin-top: 20px;">This code expires in 5 minutes.</p>
-              </div>
-            `
-          }).then(result => {
-            if (result.error) {
-              console.error('Resend Error:', result.error);
-              throw new Error(`Resend Error: ${result.error.message}`);
-            }
-            console.log('Verification email sent successfully');
-          }).catch(e => {
-            console.error('Email Send Error:', e.message);
-            // We don't rethrow here to allow the process to continue if one channel fails
-          }));
-        } else {
-          console.warn('RESEND_API_KEY not configured, skipping Email');
         }
       }
 
@@ -399,55 +453,33 @@ export async function createServer() {
           verificationSessions.delete(docId);
         }
         
-        // If userId is provided (authenticated user verifying)
-        if (userId) {
+        // If userId is provided (authenticated user verifying phone)
+        if (userId && type === 'phone') {
           if (!adminDb) return res.status(500).json({ error: 'Database service unavailable' });
           
-          const updates: any = {};
-          
-          // Handle Phone Verification
-          if (type === 'phone' || (type === 'both' && updated.phoneVerified)) {
-            if (normalizedPhone) {
-              const existingUsers = await adminDb.collection('users')
-                .where('phone', '==', normalizedPhone)
-                .get();
-              
-              const otherUser = existingUsers.docs.find(d => d.id !== userId);
-              if (otherUser) {
-                return res.status(400).json({ error: 'Phone number already linked to another account' });
-              }
-              updates.phoneVerified = true;
-              updates.phone = normalizedPhone;
+          // Check if phone is already used by ANOTHER user
+          if (normalizedPhone) {
+            const existingUsers = await adminDb.collection('users')
+              .where('phone', '==', normalizedPhone)
+              .get();
+            
+            const otherUser = existingUsers.docs.find(d => d.id !== userId);
+            if (otherUser) {
+              return res.status(400).json({ error: 'Phone number already linked to another account' });
             }
           }
 
-          // Handle Email Verification
-          if (type === 'email' || (type === 'both' && updated.emailVerified)) {
-            if (email) {
-              // Check if email is already used by ANOTHER user (optional but safer)
-              const existingEmailUsers = await adminDb.collection('users')
-                .where('email', '==', email)
-                .get();
-              
-              const otherEmailUser = existingEmailUsers.docs.find(d => d.id !== userId);
-              if (otherEmailUser) {
-                return res.status(400).json({ error: 'Email address already linked to another account' });
-              }
-              updates.emailVerified = true;
-              updates.email = email;
-            }
-          }
-
-          if (Object.keys(updates).length > 0) {
-            await adminDb.collection('users').doc(userId).update(updates);
-          }
+          // Update the user
+          await adminDb.collection('users').doc(userId).update({ 
+            phoneVerified: true,
+            phone: normalizedPhone // Ensure phone is synced
+          });
           
           return res.json({ 
             success: true, 
             fullyVerified: isFullyVerified, 
-            phoneVerified: updated.phoneVerified,
-            emailVerified: updated.emailVerified,
-            message: 'Verification successful' 
+            phoneVerified: true,
+            message: 'Phone verified successfully' 
           });
         }
 
@@ -593,40 +625,29 @@ export async function createServer() {
         used: false
       });
 
-      // Send email via Resend
-      if (!process.env.RESEND_API_KEY) {
-        console.warn('RESEND_API_KEY not configured, cannot send reset email');
-        return res.status(500).json({ error: 'Email service not configured' });
-      }
-
-      // Construct reset link (assuming frontend handles this route)
-      const resetLink = `${req.protocol}://${req.get('host')}/reset-password?token=${token}`;
-      const from = process.env.RESEND_FROM || 'noreply@codexict.solutions';
-      console.log(`Sending reset email from: ${from} to: ${email}`);
-
-      await fetchWithTimeout('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from,
-          to: email,
-          subject: 'Reset your password',
+      // Send Email
+      if (userRecord.email) {
+        const resetUrl = `${process.env.APP_URL || 'https://codexict.co.ke'}/reset-password?token=${token}`;
+        await sendEmail({
+          to: userRecord.email,
+          subject: 'Reset your password - ErrandsApp',
           html: `
-            <div style="font-family: sans-serif; padding: 20px; color: #333;">
-              <h2 style="color: #000;">Password Reset Request</h2>
-              <p>You requested to reset your password. Click the link below to set a new password:</p>
-              <div style="margin: 20px 0;">
-                <a href="${resetLink}" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+              <h2 style="color: #4f46e5; margin-bottom: 20px;">Reset your password</h2>
+              <p style="font-size: 16px; color: #374151;">We received a request to reset your password. Click the button below to proceed:</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${resetUrl}" style="background-color: #4f46e5; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">Reset Password</a>
               </div>
-              <p style="font-size: 12px; color: #666; margin-top: 20px;">This link will expire in 1 hour and can only be used once.</p>
-              <p style="font-size: 12px; color: #666;">If you did not request this, please ignore this email.</p>
+              <p style="font-size: 14px; color: #6b7280;">If you didn't request this, you can safely ignore this email. The link will expire in 1 hour.</p>
+              <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">If the button doesn't work, copy and paste this link into your browser:<br/>${resetUrl}</p>
+              <hr style="margin: 30px 0; border: 0; border-top: 1px solid #eee;" />
+              <p style="font-size: 12px; color: #9ca3af; text-align: center;">&copy; ${new Date().getFullYear()} ErrandsApp. All rights reserved.</p>
             </div>
           `
-        })
-      });
+        }).catch(e => {
+          console.error('Reset Email Error Details:', e);
+        });
+      }
 
       res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
     } catch (error: any) {
@@ -879,7 +900,10 @@ export async function createServer() {
         }
       }
     } catch (error: any) {
-      console.error('Error checking overdue verifications:', error.message);
+      console.error('Error checking overdue verifications:', error);
+      if (error.code === 7) {
+        console.error('PERMISSION_DENIED details:', error.details);
+      }
     }
   };
 
@@ -897,13 +921,23 @@ export async function createServer() {
         if (data.email || data.phone) {
           await adminDb.collection('public_users').doc(doc.id).set({
             email: data.email || '',
-            phone: data.phone || ''
+            phone: data.phone || '',
+            name: data.name || 'User',
+            role: data.role || 'requester',
+            isOnline: data.isOnline || false,
+            rating: data.rating || 5,
+            loyaltyLevel: data.loyaltyLevel || 'Bronze'
           });
         }
       }
       console.log('Migration complete.');
     };
-    migrateUsers().catch(err => console.error("Migration failed", err));
+    migrateUsers().catch(err => {
+      console.error("Migration failed", err);
+      if (err.code === 7) {
+        console.error('Migration PERMISSION_DENIED details:', err.details);
+      }
+    });
 
     // Run checks every hour
     setInterval(() => {

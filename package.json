@@ -19,6 +19,7 @@
     "firebase-admin": "^13.7.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.562.0",
+    "nodemailer": "^8.0.2",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-leaflet": "^5.0.0",
@@ -30,6 +31,7 @@
     "@types/express": "^5.0.6",
     "@types/google.maps": "^3.58.1",
     "@types/node": "^22.14.0",
+    "@types/nodemailer": "^7.0.11",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

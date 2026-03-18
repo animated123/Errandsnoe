@@ -186,9 +186,11 @@ class FirebaseService {
       let email = emailOrPhone;
       if (!emailOrPhone.includes('@')) {
         const normalized = normalizePhone(emailOrPhone);
-        const user = await this.fetchUserByPhone(normalized);
-        if (user) {
-          email = user.email;
+        const publicUser = await this.fetchPublicUserByPhone(normalized);
+        if (publicUser && publicUser.email) {
+          email = publicUser.email;
+        } else {
+          throw new Error("No account found with this phone number.");
         }
       }
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
@@ -233,7 +235,7 @@ class FirebaseService {
 
   async register(name: string, email: string, phone: string, password: string, isAdmin: boolean = false, phoneVerified: boolean = false): Promise<User> {
     const normalized = normalizePhone(phone);
-    const existingUser = await this.fetchUserByPhone(normalized);
+    const existingUser = await this.fetchPublicUserByPhone(normalized);
     if (existingUser) {
       throw new Error("Phone number already registered. Please login.");
     }
@@ -250,7 +252,15 @@ class FirebaseService {
     };
     try {
       await setDoc(doc(db, 'users', id), newUser);
-      await setDoc(doc(db, 'public_users', id), { email, phone: normalized });
+      await setDoc(doc(db, 'public_users', id), { 
+        email, 
+        phone: normalized, 
+        name, 
+        role: UserRole.REQUESTER, 
+        isOnline: true, 
+        rating: 5,
+        loyaltyLevel: 'Bronze'
+      });
       await updateProfile(userCredential.user, { displayName: name });
       return newUser;
     } catch (error) {
@@ -330,6 +340,20 @@ class FirebaseService {
         updates.phone = normalized;
       }
       await updateDoc(doc(db, 'users', userId), updates);
+      
+      // Also update public_users if relevant fields changed
+      const publicUpdates: any = {};
+      if (updates.email) publicUpdates.email = updates.email;
+      if (updates.phone) publicUpdates.phone = updates.phone;
+      if (updates.name) publicUpdates.name = updates.name;
+      if (updates.role) publicUpdates.role = updates.role;
+      if (updates.isOnline !== undefined) publicUpdates.isOnline = updates.isOnline;
+      if (updates.rating !== undefined) publicUpdates.rating = updates.rating;
+      if (updates.loyaltyLevel) publicUpdates.loyaltyLevel = updates.loyaltyLevel;
+      
+      if (Object.keys(publicUpdates).length > 0) {
+        await setDoc(doc(db, 'public_users', userId), publicUpdates, { merge: true });
+      }
     } catch (error) {
       if (error instanceof Error && error.message.includes('permission')) {
         handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
@@ -606,7 +630,33 @@ class FirebaseService {
     }
   }
 
-  // Admin
+  // Admin & Lookups
+  async fetchPublicUserByEmail(email: string): Promise<{id: string, email: string, phone: string} | null> {
+    try {
+      const q = query(collection(db, 'public_users'), where('email', '==', email), limit(1));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) return null;
+      const d = snapshot.docs[0];
+      return { id: d.id, ...d.data() } as any;
+    } catch (error) {
+      console.error("Public email lookup error:", error);
+      return null;
+    }
+  }
+
+  async fetchPublicUserByPhone(phone: string): Promise<{id: string, email: string, phone: string} | null> {
+    try {
+      const q = query(collection(db, 'public_users'), where('phone', '==', phone), limit(1));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) return null;
+      const d = snapshot.docs[0];
+      return { id: d.id, ...d.data() } as any;
+    } catch (error) {
+      console.error("Public phone lookup error:", error);
+      return null;
+    }
+  }
+
   async fetchUserByPhone(phone: string): Promise<User | null> {
     try {
       const q = query(collection(db, 'users'), where('phone', '==', phone), limit(1));
@@ -752,7 +802,7 @@ class FirebaseService {
   // Stats
   async getAppStats(): Promise<any> {
     try {
-      const users = await getDocs(collection(db, 'users'));
+      const users = await getDocs(collection(db, 'public_users'));
       const errands = await getDocs(collection(db, 'errands'));
       return {
         totalUsers: users.size,
@@ -768,11 +818,11 @@ class FirebaseService {
   // Nearby Runners
   async getNearbyRunners(): Promise<User[]> {
     try {
-      const q = query(collection(db, 'users'), where('role', '==', UserRole.RUNNER), where('isOnline', '==', true));
+      const q = query(collection(db, 'public_users'), where('role', '==', UserRole.RUNNER), where('isOnline', '==', true));
       const snapshot = await getDocs(q);
       return snapshot.docs.map(d => ({ id: d.id, ...d.data() as User }));
     } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'users');
+      handleFirestoreError(error, OperationType.LIST, 'public_users');
       throw error;
     }
   }
