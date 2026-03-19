@@ -96,11 +96,27 @@ const initializeFirebaseAdmin = async () => {
       
       if (serviceAccountVar) {
         try {
-          const serviceAccount = JSON.parse(serviceAccountVar);
+          // Clean up the string in case it has leading/trailing whitespace or is base64 encoded
+          let cleanedVar = serviceAccountVar.trim();
+          
+          // If it doesn't start with '{', it might be base64 encoded
+          if (!cleanedVar.startsWith('{')) {
+            try {
+              const decoded = Buffer.from(cleanedVar, 'base64').toString('utf8');
+              if (decoded.startsWith('{')) {
+                cleanedVar = decoded;
+              }
+            } catch (e) {
+              // Not base64, continue with original trimmed string
+            }
+          }
+
+          const serviceAccount = JSON.parse(cleanedVar);
           credential = admin.credential.cert(serviceAccount);
           console.log('Firebase Admin initialized with service account from environment variable.');
         } catch (e) {
           console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT environment variable as JSON:', e);
+          console.log('Falling back to applicationDefault()...');
           credential = admin.credential.applicationDefault();
         }
       } else if (fs.existsSync(serviceAccountFilePath)) {
@@ -884,8 +900,8 @@ export async function createServer() {
     app.use(express.static(distPath));
     
     // FIX: Express 5 requires a named parameter for wildcards
-    // Using /:path* to capture all routes for SPA navigation
-    app.get('/:path*', (req, res, next) => {
+    // Using * to capture all routes for SPA navigation
+    app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api')) {
         return next();
       }
