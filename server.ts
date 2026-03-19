@@ -75,54 +75,88 @@ const sendEmail = async ({ to, subject, html }: { to: string, subject: string, h
 };
 
 // Initialize Firebase Admin
-let adminAuth: admin.auth.Auth;
-let adminDb: admin.firestore.Firestore;
+let adminAuth: admin.auth.Auth | null = null;
+let adminDb: admin.firestore.Firestore | null = null;
 
-try {
-  if (firebaseConfig && !admin.apps.length) {
-    // In Cloud Run, applicationDefault() picks up the service account.
-    // We only pass projectId if it's explicitly different from the environment.
-    const projectId = firebaseConfig.projectId;
-    console.log('Initializing Firebase Admin with Project ID:', projectId);
-    console.log('Environment Project ID:', process.env.GOOGLE_CLOUD_PROJECT || 'Not set');
-    
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-    });
-    console.log('Firebase Admin initialized with default credentials.');
-    console.log('App Project ID:', admin.app().options.projectId);
-  } else if (!admin.apps.length) {
-    console.warn('No firebase-applet-config.json found. Firebase Admin not initialized.');
+const initializeFirebaseAdmin = async () => {
+  if (admin.apps.length) {
+    if (!adminAuth) adminAuth = admin.auth();
+    if (!adminDb) adminDb = getFirestore();
+    return { adminAuth, adminDb };
+  }
+
+  try {
+    if (firebaseConfig) {
+      const projectId = firebaseConfig.projectId;
+      console.log('Initializing Firebase Admin with Project ID:', projectId);
+      
+      let credential;
+      const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+      const serviceAccountFilePath = path.join(process.cwd(), 'firebase-service-account.json');
+      
+      if (serviceAccountVar) {
+        try {
+          const serviceAccount = JSON.parse(serviceAccountVar);
+          credential = admin.credential.cert(serviceAccount);
+          console.log('Firebase Admin initialized with service account from environment variable.');
+        } catch (e) {
+          console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT environment variable as JSON:', e);
+          credential = admin.credential.applicationDefault();
+        }
+      } else if (fs.existsSync(serviceAccountFilePath)) {
+        try {
+          const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountFilePath, 'utf8'));
+          credential = admin.credential.cert(serviceAccount);
+          console.log('Firebase Admin initialized with service account from local file.');
+        } catch (e) {
+          console.error('Failed to read firebase-service-account.json:', e);
+          credential = admin.credential.applicationDefault();
+        }
+      } else {
+        console.log('No service account environment variable or local file found. Using applicationDefault().');
+        credential = admin.credential.applicationDefault();
+      }
+
+      admin.initializeApp({
+        credential,
+        projectId: projectId // Ensure project ID is set explicitly
+      });
+      
+      adminAuth = admin.auth();
+      const dbId = firebaseConfig?.firestoreDatabaseId;
+      
+      try {
+        adminDb = dbId 
+          ? getFirestore(admin.app(), dbId)
+          : getFirestore();
+        
+        // Test the connection to the database (only if not on Vercel to avoid cold start delays)
+        if (!process.env.VERCEL) {
+          await adminDb.collection('health_check').limit(1).get();
+        }
+        console.log('Firebase Admin Auth and Firestore initialized successfully.');
+      } catch (dbError: any) {
+        console.error(`Failed to initialize Firestore with database ID "${dbId}":`, dbError.message);
+        if (dbId) {
+          console.log('Falling back to (default) database...');
+          adminDb = getFirestore();
+        } else {
+          throw dbError;
+        }
+      }
+    } else {
+      console.warn('No firebase-applet-config.json found. Firebase Admin not initialized.');
+    }
+  } catch (error) {
+    console.error('Firebase Admin Initialization Error:', error);
   }
   
-  if (admin.apps.length) {
-    adminAuth = admin.auth();
-    // Initialize Firestore with the default app and the named database if provided
-    const dbId = firebaseConfig?.firestoreDatabaseId;
-    console.log('Initializing Firestore with Database ID:', dbId || '(default)');
-    
-    try {
-      adminDb = dbId 
-        ? getFirestore(admin.app(), dbId)
-        : getFirestore();
-      // Test the connection to the database
-      await adminDb.collection('health_check').limit(1).get();
-      console.log('Firebase Admin Auth and Firestore initialized successfully.');
-    } catch (dbError: any) {
-      console.error(`Failed to initialize Firestore with database ID "${dbId}":`, dbError.message);
-      if (dbId) {
-        console.log('Falling back to (default) database...');
-        adminDb = getFirestore();
-        console.log('Firebase Admin Auth and Firestore (default) initialized.');
-      } else {
-        throw dbError;
-      }
-    }
-  } else {
-    console.error('Firebase Admin NOT initialized.');
-  }
-} catch (error) {
-  console.error('Firebase Admin Initialization Error:', error);
+  return { adminAuth, adminDb };
+};
+
+// Initialize Firebase Admin immediately if NOT on Vercel
+if (!process.env.VERCEL) {
+  initializeFirebaseAdmin().catch(err => console.error('Initial Firebase Admin setup failed:', err));
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -204,6 +238,9 @@ const sendSMS = async (recipient: string, message: string) => {
 
 export async function createServer() {
   const app = express();
+  
+  // Initialize Firebase Admin for this request/server instance
+  await initializeFirebaseAdmin();
   
   // Google Cloud Run injects PORT. Defaulting to 3000 for AI Studio preview.
   const PORT = Number(process.env.PORT) || 3000;
@@ -907,8 +944,8 @@ export async function createServer() {
     }
   };
 
-  // Run background tasks only once per process
-  if (!(global as any).__backgroundTasksStarted) {
+  // Run background tasks only once per process, and NOT on Vercel
+  if (!(global as any).__backgroundTasksStarted && !process.env.VERCEL) {
     (global as any).__backgroundTasksStarted = true;
     
     // Migrate users
