@@ -96,26 +96,51 @@ const initializeFirebaseAdmin = async () => {
       
       if (serviceAccountVar) {
         try {
-          // Clean up the string in case it has leading/trailing whitespace or is base64 encoded
+          console.log('Attempting to parse service account from environment variable...');
           let cleanedVar = serviceAccountVar.trim();
           
-          // If it doesn't start with '{', it might be base64 encoded
-          if (!cleanedVar.startsWith('{')) {
+          // Handle cases where the string might be wrapped in quotes or escaped with literal \n
+          if (cleanedVar.startsWith('"') && cleanedVar.endsWith('"')) {
             try {
-              const decoded = Buffer.from(cleanedVar, 'base64').toString('utf8');
-              if (decoded.startsWith('{')) {
-                cleanedVar = decoded;
-              }
+              cleanedVar = JSON.parse(cleanedVar);
             } catch (e) {
-              // Not base64, continue with original trimmed string
+              console.warn('Failed to unwrap quoted service account string');
             }
           }
 
-          const serviceAccount = JSON.parse(cleanedVar);
+          // If it doesn't start with '{', it might be base64 encoded or have literal escapes
+          if (!cleanedVar.startsWith('{')) {
+            // Try to handle literal \n or other escapes
+            if (cleanedVar.includes('\\')) {
+              try {
+                // Unescape literal backslashes (e.g. \n -> newline)
+                cleanedVar = cleanedVar.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+              } catch (e) {}
+            }
+
+            // If still not starting with '{', try base64
+            if (!cleanedVar.trim().startsWith('{')) {
+              try {
+                const decoded = Buffer.from(cleanedVar.trim(), 'base64').toString('utf8');
+                if (decoded.trim().startsWith('{')) {
+                  cleanedVar = decoded.trim();
+                }
+              } catch (e) {
+                // Not base64
+              }
+            }
+          }
+
+          const serviceAccount = JSON.parse(cleanedVar.trim());
           credential = admin.credential.cert(serviceAccount);
           console.log('Firebase Admin initialized with service account from environment variable.');
-        } catch (e) {
-          console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT environment variable as JSON:', e);
+          
+          // Verify project ID matches
+          if (serviceAccount.project_id && serviceAccount.project_id !== projectId) {
+            console.warn(`Service account project ID (${serviceAccount.project_id}) does not match config project ID (${projectId}). This may cause PERMISSION_DENIED.`);
+          }
+        } catch (e: any) {
+          console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT environment variable as JSON:', e.message);
           console.log('Falling back to applicationDefault()...');
           credential = admin.credential.applicationDefault();
         }
@@ -148,16 +173,38 @@ const initializeFirebaseAdmin = async () => {
         
         // Test the connection to the database (only if not on Vercel to avoid cold start delays)
         if (!process.env.VERCEL) {
-          await adminDb.collection('health_check').limit(1).get();
+          try {
+            await adminDb.collection('health_check').limit(1).get();
+            console.log('Firebase Admin Auth and Firestore initialized successfully.');
+          } catch (testError: any) {
+            if (testError.code === 7 || testError.message.includes('PERMISSION_DENIED')) {
+              console.error(`PERMISSION_DENIED when accessing database "${dbId || '(default)'}". Ensure the service account has "Cloud Datastore User" role.`);
+              throw testError;
+            } else if (testError.code === 5 || testError.message.includes('NOT_FOUND')) {
+              console.error(`Database "${dbId || '(default)'}" NOT_FOUND. Check if the database ID is correct and exists in project "${projectId}".`);
+              throw testError;
+            } else {
+              console.warn(`Health check failed for database "${dbId || '(default)'}":`, testError.message);
+              // Don't throw for other errors, maybe the collection just doesn't exist
+            }
+          }
         }
-        console.log('Firebase Admin Auth and Firestore initialized successfully.');
       } catch (dbError: any) {
         console.error(`Failed to initialize Firestore with database ID "${dbId}":`, dbError.message);
-        if (dbId) {
+        if (dbId && dbId !== '(default)') {
           console.log('Falling back to (default) database...');
-          adminDb = getFirestore();
+          try {
+            adminDb = getFirestore();
+            if (!process.env.VERCEL) {
+              await adminDb.collection('health_check').limit(1).get();
+            }
+            console.log('Successfully fell back to (default) database.');
+          } catch (fallbackError: any) {
+            console.error('Fallback to (default) database also failed:', fallbackError.message);
+            // If both fail, we might be in trouble, but we'll keep adminDb as (default) and hope for the best
+          }
         } else {
-          throw dbError;
+          console.error('Firestore initialization failed and no fallback possible.');
         }
       }
     } else {
@@ -506,12 +553,14 @@ export async function createServer() {
           verificationSessions.delete(docId);
         }
         
-        // If userId is provided (authenticated user verifying phone)
-        if (userId && type === 'phone') {
+        // If userId is provided (authenticated user verifying phone or email)
+        if (userId && (type === 'phone' || type === 'email')) {
           if (!adminDb) return res.status(500).json({ error: 'Database service unavailable' });
           
-          // Check if phone is already used by ANOTHER user
-          if (normalizedPhone) {
+          const updateData: any = {};
+          
+          if (type === 'phone' && normalizedPhone) {
+            // Check if phone is already used by ANOTHER user
             const existingUsers = await adminDb.collection('users')
               .where('phone', '==', normalizedPhone)
               .get();
@@ -520,19 +569,36 @@ export async function createServer() {
             if (otherUser) {
               return res.status(400).json({ error: 'Phone number already linked to another account' });
             }
+            
+            updateData.phoneVerified = true;
+            updateData.phone = normalizedPhone;
+          }
+
+          if (type === 'email' && email) {
+            // Check if email is already used by ANOTHER user
+            const existingUsers = await adminDb.collection('users')
+              .where('email', '==', email)
+              .get();
+            
+            const otherUser = existingUsers.docs.find(d => d.id !== userId);
+            if (otherUser) {
+              return res.status(400).json({ error: 'Email address already linked to another account' });
+            }
+            
+            updateData.emailVerified = true;
+            updateData.isVerified = true;
+            updateData.email = email;
           }
 
           // Update the user
-          await adminDb.collection('users').doc(userId).update({ 
-            phoneVerified: true,
-            phone: normalizedPhone // Ensure phone is synced
-          });
+          await adminDb.collection('users').doc(userId).update(updateData);
           
           return res.json({ 
             success: true, 
             fullyVerified: isFullyVerified, 
-            phoneVerified: true,
-            message: 'Phone verified successfully' 
+            phoneVerified: updated.phoneVerified,
+            emailVerified: updated.emailVerified,
+            message: `${type === 'phone' ? 'Phone' : 'Email'} verified successfully` 
           });
         }
 
@@ -911,6 +977,7 @@ export async function createServer() {
 
   // Function to cancel stale errands
   const cancelStaleErrands = async () => {
+    if (!adminDb) return;
     console.log('Checking for stale errands...');
     try {
       const now = Date.now();
@@ -925,7 +992,11 @@ export async function createServer() {
         }
       }
     } catch (error: any) {
-      console.error('Firebase sync error:', error.message);
+      if (error.code === 5 || error.message.includes('NOT_FOUND')) {
+        console.error('Firebase sync error: Database or collection not found. This often happens if the database ID is incorrect.');
+      } else {
+        console.error('Firebase sync error:', error.message);
+      }
     }
   };
 
@@ -953,9 +1024,12 @@ export async function createServer() {
         }
       }
     } catch (error: any) {
-      console.error('Error checking overdue verifications:', error);
-      if (error.code === 7) {
-        console.error('PERMISSION_DENIED details:', error.details);
+      if (error.code === 5 || error.message.includes('NOT_FOUND')) {
+        console.error('Error checking overdue verifications: Database or collection not found.');
+      } else if (error.code === 7 || error.message.includes('PERMISSION_DENIED')) {
+        console.error('Error checking overdue verifications: PERMISSION_DENIED.');
+      } else {
+        console.error('Error checking overdue verifications:', error);
       }
     }
   };
@@ -986,9 +1060,12 @@ export async function createServer() {
       console.log('Migration complete.');
     };
     migrateUsers().catch(err => {
-      console.error("Migration failed", err);
-      if (err.code === 7) {
-        console.error('Migration PERMISSION_DENIED details:', err.details);
+      if (err.code === 5 || err.message.includes('NOT_FOUND')) {
+        console.error("Migration failed: Database or collection not found. Ensure the correct database ID is used.");
+      } else if (err.code === 7 || err.message.includes('PERMISSION_DENIED')) {
+        console.error('Migration PERMISSION_DENIED: Service account lacks permissions for this database.');
+      } else {
+        console.error("Migration failed", err);
       }
     });
 

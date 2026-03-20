@@ -70,6 +70,7 @@ export const formatFirebaseError = (error: any): string => {
       case 'auth/network-request-failed': return "Network error. Please check your internet connection.";
       case 'auth/too-many-requests': return "Too many attempts. Please try again later.";
       case 'auth/internal-error': return "Authentication service error. Please try again later.";
+      case 'auth/operation-not-allowed': return "Email/Password sign-in is not enabled. Please contact support.";
     }
   }
 

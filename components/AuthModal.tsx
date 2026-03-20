@@ -159,7 +159,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
           } else if (data.needsRegistration) {
             setIsLogin(false);
             setUseOTP(false);
-            setError("Account not found. Please register.");
+            setError("Account not found. Please fill in your details to register.");
+            // Pre-fill the registration form
+            if (otpType === 'phone') setForm(prev => ({ ...prev, phone: form.phone }));
+            if (otpType === 'email') setForm(prev => ({ ...prev, email: form.email }));
             return;
           } else {
             throw new Error("Verification successful but no access token received.");
@@ -190,6 +193,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess, f
     setError(null);
     try {
       if (isLogin) {
+        // Check if it's a phone number and we should suggest OTP
+        const isPhone = !form.email.includes('@') && /^\d+$/.test(form.email.replace(/\D/g, ''));
+        if (isPhone) {
+          setUseOTP(true);
+          setOtpType('phone');
+          setForm(prev => ({ ...prev, phone: form.email }));
+          setLoading(false);
+          return;
+        }
         const user = await firebaseService.login(form.email, form.password);
         onAuthSuccess(user);
         onClose();

@@ -1,7 +1,7 @@
 /// <reference types="google.maps" />
 import React, { useState, useEffect } from 'react';
 import { Errand, ErrandStatus, ErrandCategory, Coordinates } from '../types';
-import { MapPin, DollarSign, Clock, ChevronRight, ArrowRight, Globe, Waves, Home, Briefcase, ShoppingBag, ShieldCheck } from 'lucide-react';
+import { MapPin, DollarSign, Clock, ChevronRight, ArrowRight, Globe, Waves, Home, Briefcase, ShoppingBag, ShieldCheck, Map as MapIcon } from 'lucide-react';
 import { calculateDistance } from '../services/firebaseService';
 
 interface ErrandCardProps {
@@ -211,9 +211,16 @@ const ErrandCard: React.FC<ErrandCardProps> = ({ errand, onClick, currentLocatio
               e.stopPropagation(); 
               setShowMap(!showMap); 
             }} 
-            className={`p-1.5 rounded-lg transition-all ${showMap ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all border ${
+              showMap 
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100' 
+                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+            }`}
           >
-            <MapPin size={12} />
+            <MapIcon size={12} className={showMap ? 'animate-pulse' : ''} />
+            <span className="text-[9px] font-black uppercase tracking-widest">
+              {showMap ? 'Hide Map' : 'View Map'}
+            </span>
           </button>
         </div>
       </div>

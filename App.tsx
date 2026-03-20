@@ -28,6 +28,7 @@ import BidModal from './components/BidModal';
 import AuthModal from './components/AuthModal';
 import ResetPasswordModal from './components/ResetPasswordModal';
 import PhoneVerificationModal from './components/PhoneVerificationModal';
+import EmailVerificationModal from './components/EmailVerificationModal';
 
 const callGeminiWithRetry = async (prompt: string, maxRetries = 3): Promise<string> => {
   if (typeof prompt !== 'string') return "";
@@ -1309,6 +1310,7 @@ export default function App() {
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [showPhoneVerificationModal, setShowPhoneVerificationModal] = useState(false);
+  const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showPriceGuideModal, setShowPriceGuideModal] = useState(false);
   const [showContactUsModal, setShowContactUsModal] = useState(false);
@@ -2200,14 +2202,7 @@ export default function App() {
                     onUpdate={(updates) => setUser({...user, ...updates})} 
                     onBack={() => setProfileView('main')} 
                     onVerifyPhone={() => setShowPhoneVerificationModal(true)}
-                    onVerifyEmail={async () => {
-                      try {
-                        await firebaseService.sendEmailVerification();
-                        alert("Verification email sent! Please check your inbox.");
-                      } catch (e) {
-                        alert(formatFirebaseError(e));
-                      }
-                    }}
+                    onVerifyEmail={() => setShowEmailVerificationModal(true)}
                   />
                 )}
 
@@ -2260,6 +2255,7 @@ export default function App() {
           setShowComparisonModal={setShowComparisonModal}
           setShowAuthModal={setShowAuthModal}
           setShowPhoneVerificationModal={setShowPhoneVerificationModal}
+          setShowEmailVerificationModal={setShowEmailVerificationModal}
           setAuthModalMode={setAuthModalMode}
         />
       )}
@@ -2331,6 +2327,17 @@ export default function App() {
         <PhoneVerificationModal 
           user={user}
           onClose={() => setShowPhoneVerificationModal(false)}
+          onSuccess={async () => {
+            const updated = await firebaseService.getCurrentUser();
+            if (updated) setUser(updated);
+          }}
+        />
+      )}
+
+      {showEmailVerificationModal && user && (
+        <EmailVerificationModal 
+          user={user}
+          onClose={() => setShowEmailVerificationModal(false)}
           onSuccess={async () => {
             const updated = await firebaseService.getCurrentUser();
             if (updated) setUser(updated);
@@ -4396,7 +4403,7 @@ const ErrandDetailScreen: React.FC<any> = ({
   selectedErrand, setSelectedErrand, user, setUser, refresh, 
   onRunnerComplete, onCompleteErrand, loading,
   setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal,
-  setShowPhoneVerificationModal, setAuthModalMode
+  setShowPhoneVerificationModal, setShowEmailVerificationModal, setAuthModalMode
 }) => {
   if (!user) return null;
   
