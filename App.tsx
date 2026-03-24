@@ -100,6 +100,7 @@ export default function App() {
     revenuePerDay: [],
     failedErrandsPercent: 0
   });
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [profileView, setProfileView] = useState<'main' | 'edit' | 'history' | 'apply-runner'>('main');
   const [proximityFilter, setProximityFilter] = useState<number | null>(null);
@@ -112,8 +113,10 @@ export default function App() {
   const [showPriceGuideModal, setShowPriceGuideModal] = useState(false);
   const [showContactUsModal, setShowContactUsModal] = useState(false);
   const [featuredServices, setFeaturedServices] = useState<FeaturedService[]>([]);
+  const [isLoadingFeatured, setIsLoadingFeatured] = useState(true);
   const [selectedFeaturedService, setSelectedFeaturedService] = useState<FeaturedService | null>(null);
   const [serviceListings, setServiceListings] = useState<ServiceListing[]>([]);
+  const [isLoadingServices, setIsLoadingServices] = useState(true);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -230,13 +233,25 @@ export default function App() {
 
   useEffect(() => {
     if (user?.isAdmin) {
-      firebaseService.getAppStats().then(setStats);
+      setIsLoadingStats(true);
+      firebaseService.getAppStats().then(data => {
+        setStats(data);
+        setIsLoadingStats(false);
+      });
     }
   }, [user?.id, user?.isAdmin]);
 
   useEffect(() => {
-    firebaseService.fetchFeaturedServices().then(setFeaturedServices);
-    firebaseService.fetchServiceListings().then(setServiceListings);
+    setIsLoadingFeatured(true);
+    setIsLoadingServices(true);
+    firebaseService.fetchFeaturedServices().then(data => {
+      setFeaturedServices(data);
+      setIsLoadingFeatured(false);
+    });
+    firebaseService.fetchServiceListings().then(data => {
+      setServiceListings(data);
+      setIsLoadingServices(false);
+    });
 
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || params.get('oobCode');
@@ -722,13 +737,17 @@ export default function App() {
                 <button onClick={() => setActiveTab('menu')} className="text-[10px] text-indigo-600 hover:underline">View All</button>
               </div>
               <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar px-2 -mx-2">
-                {featuredServices.length === 0 ? (
+                {isLoadingFeatured ? (
                   Array.from({ length: 4 }).map((_, i) => (
                     <div key={i} className="flex-shrink-0 w-28 bg-white rounded-xl p-2 border border-slate-100 shadow-soft animate-pulse">
                       <div className="aspect-[4/3] bg-secondary rounded-lg mb-2"></div>
                       <div className="h-2 bg-secondary rounded w-3/4 mb-1"></div>
                     </div>
                   ))
+                ) : featuredServices.length === 0 ? (
+                  <div className="w-full py-10 text-center bg-white rounded-[2.5rem] border border-slate-100">
+                    <p className="text-sm font-bold text-slate-400">No featured services available</p>
+                  </div>
                 ) : (
                   featuredServices.map(service => (
                     <motion.div 
@@ -1691,6 +1710,7 @@ const AdminPanelLocal: React.FC<{
   const [selectedSupportUser, setSelectedSupportUser] = useState<string | null>(null);
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const logoFileRef = useRef<HTMLInputElement>(null);
   const iconFileRef = useRef<HTMLInputElement>(null);
 
@@ -1703,12 +1723,29 @@ const AdminPanelLocal: React.FC<{
   }, [settings]);
 
   useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const [apps, allFeatured, allServices, allUsers] = await Promise.all([
+          firebaseService.fetchRunnerApplications(),
+          firebaseService.fetchFeaturedServices(),
+          firebaseService.fetchServiceListings(),
+          firebaseService.fetchAllUsers()
+        ]);
+        setApplications(apps);
+        setAdminFeaturedServices(allFeatured);
+        setAdminServiceListings(allServices);
+        setDbUsers(allUsers);
+        const statsData = await firebaseService.getAppStats();
+        setStats(statsData);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
     const unsubSupport = firebaseService.subscribeToAllSupportChats(setSupportChats);
-    firebaseService.getAppStats().then(setStats);
-    firebaseService.fetchRunnerApplications().then(setApplications);
-    firebaseService.fetchFeaturedServices().then(setAdminFeaturedServices);
-    firebaseService.fetchServiceListings().then(setAdminServiceListings);
-    firebaseService.fetchAllUsers().then(setDbUsers);
+    loadData();
     return () => unsubSupport();
   }, [setSupportChats, setStats, setApplications, setAdminFeaturedServices, setAdminServiceListings, setDbUsers]);
 
@@ -1861,7 +1898,39 @@ const AdminPanelLocal: React.FC<{
         </button>
       </div>
 
-      {activeAdminTab === 'stats' && (
+      {loading ? (
+        <div className="space-y-6">
+          <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Skeleton className="w-12 h-12 rounded-xl" />
+                <div className="space-y-2">
+                  <Skeleton className="w-32 h-4" />
+                  <Skeleton className="w-48 h-2" />
+                </div>
+              </div>
+              <Skeleton className="w-10 h-10 rounded-xl" />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Skeleton className="h-16 rounded-2xl" />
+              <Skeleton className="h-16 rounded-2xl" />
+              <Skeleton className="h-16 rounded-2xl" />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Skeleton className="h-12 rounded-2xl" />
+              <Skeleton className="h-12 rounded-2xl" />
+              <Skeleton className="h-12 rounded-2xl" />
+              <Skeleton className="h-12 rounded-2xl" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Skeleton className="h-64 rounded-[2rem]" />
+            <Skeleton className="h-64 rounded-[2rem]" />
+          </div>
+        </div>
+      ) : (
+        <>
+          {activeAdminTab === 'stats' && (
         <div className="space-y-6 animate-in fade-in">
           <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
@@ -2652,8 +2721,10 @@ const AdminPanelLocal: React.FC<{
           </div>
         </div>
       )}
-    </div>
-  );
+    </>
+  )}
+</div>
+);
 };
 
 const SupportChatViewLocal: React.FC<{ user: User, targetUserId?: string, isAdmin?: boolean }> = ({ user, targetUserId, isAdmin = false }) => {

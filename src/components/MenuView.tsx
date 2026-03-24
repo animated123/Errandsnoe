@@ -1,13 +1,15 @@
 import React from 'react';
-import { Search, Filter, Star, Plus, ShoppingBag, Waves, Home, Package, Car, ShoppingCart, Sparkles } from 'lucide-react';
+import { Search, Filter, Star, Plus, ShoppingBag, Waves, Home, Package, Car, ShoppingCart, Sparkles, Loader2 } from 'lucide-react';
 import { ServiceListing, ErrandCategory } from '../../types';
+import { Skeleton } from './ErrandCard';
 
 interface MenuViewProps {
   listings: ServiceListing[];
   onSelect: (listing: ServiceListing) => void;
+  isLoading?: boolean;
 }
 
-export default function MenuView({ listings, onSelect }: MenuViewProps) {
+export default function MenuView({ listings, onSelect, isLoading }: MenuViewProps) {
   const categories = [
     { id: ErrandCategory.MAMA_FUA, label: 'Laundry', icon: Waves, color: 'bg-blue-50 text-blue-600' },
     { id: ErrandCategory.MARKET_SHOPPING, label: 'Market', icon: ShoppingBag, color: 'bg-emerald-50 text-emerald-600' },
@@ -40,7 +42,23 @@ export default function MenuView({ listings, onSelect }: MenuViewProps) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
-        {listings.length === 0 ? (
+        {isLoading ? (
+          [1, 2, 3, 4].map((i) => (
+            <div key={`skeleton-listing-${i}`} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <Skeleton className="w-12 h-12 rounded-2xl" />
+                <Skeleton className="w-20 h-6 rounded-full" />
+              </div>
+              <Skeleton className="w-3/4 h-6 mb-2" />
+              <Skeleton className="w-full h-4 mb-1" />
+              <Skeleton className="w-2/3 h-4 mb-4" />
+              <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                <Skeleton className="w-24 h-4" />
+                <Skeleton className="w-8 h-8 rounded-xl" />
+              </div>
+            </div>
+          ))
+        ) : listings.length === 0 ? (
           <div className="col-span-full p-20 text-center bg-white rounded-[3rem] border border-slate-100 shadow-sm">
             <Sparkles size={48} className="mx-auto mb-4 text-slate-200" />
             <h3 className="text-xl font-black text-slate-900 mb-1">No services found</h3>

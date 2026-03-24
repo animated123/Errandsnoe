@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, AppSettings, RunnerApplication, FeaturedService, ServiceListing, ErrandCategory, UserRole, Errand, ErrandStatus, PriceRequest, LoyaltyLevel, ChatMessage, Coordinates } from '../../types';
 import { firebaseService, formatPhoneDisplay, cloudinaryService } from '../../services/firebaseService';
+import { Skeleton } from './ErrandCard';
 import { 
   ShieldAlert, RefreshCw, Plus, Trash2, Upload, Save, MessageSquare, Loader2, 
   X, Settings, ImageIcon, ShoppingBag, Download, Check, MessageCircle, 
@@ -169,7 +170,67 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-20"><LoadingSpinner /></div>
+        <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden p-10">
+          {activeTab === 'overview' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 space-y-4">
+                  <Skeleton className="w-12 h-12 rounded-2xl" />
+                  <div className="space-y-2">
+                    <Skeleton className="w-20 h-3" />
+                    <Skeleton className="w-32 h-10" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {activeTab === 'applications' && (
+            <div className="space-y-6">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="flex items-center justify-between p-4 border-b border-slate-50">
+                  <div className="flex items-center gap-6">
+                    <Skeleton className="w-16 h-16 rounded-2xl" />
+                    <div className="space-y-2">
+                      <Skeleton className="w-40 h-6" />
+                      <Skeleton className="w-32 h-4" />
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <Skeleton className="w-24 h-10 rounded-xl" />
+                    <Skeleton className="w-24 h-10 rounded-xl" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {activeTab === 'users' && (
+            <div className="space-y-6">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="flex items-center justify-between p-4 border-b border-slate-50">
+                  <div className="flex items-center gap-4">
+                    <Skeleton className="w-12 h-12 rounded-xl" />
+                    <div className="space-y-2">
+                      <Skeleton className="w-32 h-5" />
+                      <Skeleton className="w-48 h-3" />
+                    </div>
+                  </div>
+                  <Skeleton className="w-20 h-6 rounded-lg" />
+                </div>
+              ))}
+            </div>
+          )}
+          {['services', 'featured', 'sms', 'branding', 'system'].includes(activeTab) && (
+            <div className="space-y-8">
+              <Skeleton className="w-1/2 h-8" />
+              <div className="grid grid-cols-2 gap-8">
+                <Skeleton className="h-32 rounded-[2rem]" />
+                <Skeleton className="h-32 rounded-[2rem]" />
+                <Skeleton className="h-32 rounded-[2rem]" />
+                <Skeleton className="h-32 rounded-[2rem]" />
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden min-h-[500px]">
           {activeTab === 'overview' && (
