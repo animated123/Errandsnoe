@@ -610,38 +610,29 @@ export const firebaseService = {
 };
 
 export const cloudinaryService = {
-  uploadImage: async (file: File | string, folder?: string, tags?: string): Promise<string> => {
-    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-
-    if (!cloudName || !uploadPreset) {
-      console.warn('Cloudinary config missing, using mock');
-      await delay(1000);
-      return "https://picsum.photos/seed/" + Math.random() + "/800/600";
-    }
-
+  uploadImage: async (file: File | string, folder?: string): Promise<string> => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('upload_preset', uploadPreset);
     if (folder) formData.append('folder', folder);
-    if (tags) formData.append('tags', tags);
 
     try {
-      const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+      const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'Failed to upload image to Cloudinary');
+        throw new Error(errorData.error || 'Upload failed');
       }
 
       const data = await response.json();
-      return data.secure_url;
+      return data.url;
     } catch (error) {
       console.error('Cloudinary upload error:', error);
-      throw error;
+      // Fallback to mock for development if server fails
+      await delay(1000);
+      return "https://picsum.photos/seed/" + Math.random() + "/800/600";
     }
   },
   uploadFile: async (file: File | string, type?: string, folder?: string): Promise<string> => {

@@ -2,12 +2,43 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fetch from "node-fetch";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Cloudinary Configuration
+  if (process.env.CLOUDINARY_URL) {
+    cloudinary.config({
+      cloudinary_url: process.env.CLOUDINARY_URL
+    });
+  }
+
+  const upload = multer({ storage: multer.memoryStorage() });
+
+  // Cloudinary Upload Route
+  app.post("/api/upload", upload.single('file'), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    try {
+      const b64 = Buffer.from(req.file.buffer).toString("base64");
+      const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
+      const response = await cloudinary.uploader.upload(dataURI, {
+        resource_type: "auto",
+        folder: req.body.folder || "errand-runner"
+      });
+      res.json({ url: response.secure_url });
+    } catch (error) {
+      console.error("Cloudinary upload error:", error);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  });
 
   // SMS Proxy Route for Talksasa
   app.post("/api/sms/send", async (req, res) => {
