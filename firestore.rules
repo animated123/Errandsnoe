@@ -110,8 +110,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email == "ngugimaina4@gmail.com" || 
-        request.auth.token.email == "Errands@codexict.co.ke"
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN' ||
+        (request.auth.token.email == "ngugimaina4@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == "Errands@codexict.co.ke" && request.auth.token.email_verified == true)
       );
     }
 
@@ -122,6 +123,12 @@ service cloud.firestore {
     // ===============================================================
     // Rules
     // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
 
     match /settings/global {
       allow read: if true;

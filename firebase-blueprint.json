@@ -1,5 +1,23 @@
 {
   "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user of the application.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["REQUESTER", "RUNNER", "ADMIN"] },
+        "isAdmin": { "type": "boolean" },
+        "loyaltyPoints": { "type": "integer" },
+        "hoursSaved": { "type": "integer" },
+        "loyaltyLevel": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
     "AppSettings": {
       "title": "AppSettings",
       "description": "Global application settings",

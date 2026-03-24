@@ -6,7 +6,7 @@ import {
   X, Settings, ImageIcon, ShoppingBag, Download, Check, MessageCircle, 
   Search, UserCheck, CheckCircle, Briefcase, Navigation, Info, DollarSign, 
   Droplets, Wifi, Shield, Car, Star, ChevronRight, ChevronLeft, Camera, 
-  ShieldCheck, ArrowRight, Sparkles 
+  ShieldCheck, ArrowRight, Sparkles, Map, MapPin
 } from 'lucide-react';
 import LoadingSpinner from './LoadingSpinner';
 import SupportChatView from './SupportChatView';
@@ -275,6 +275,59 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                   <button onClick={() => setSystemSettings({...systemSettings, maintenanceMode: !systemSettings.maintenanceMode})} className={`w-14 h-8 rounded-full transition-all relative ${systemSettings.maintenanceMode ? 'bg-red-500' : 'bg-slate-200'}`}>
                     <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${systemSettings.maintenanceMode ? 'right-1' : 'left-1'}`} />
                   </button>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">API Integrations</h3>
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="flex items-center justify-between p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center">
+                        <Map size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-black text-slate-900">Google Maps API</h4>
+                        <p className="text-micro text-slate-400">Real-time runner tracking & errand pins</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Active</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center">
+                        <Sparkles size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-black text-slate-900">Gemini AI</h4>
+                        <p className="text-micro text-slate-400">Smart errand parsing & automation</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Active</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center">
+                        <ImageIcon size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-black text-slate-900">Cloudinary</h4>
+                        <p className="text-micro text-slate-400">Image hosting & optimization</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Active</span>
+                    </div>
+                  </div>
                 </div>
               </div>
               <button onClick={handleUpdateSettings} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-indigo-100 flex items-center justify-center gap-3">

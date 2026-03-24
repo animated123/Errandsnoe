@@ -47,6 +47,7 @@ import ResetPasswordModal from './src/components/ResetPasswordModal';
 import PhoneVerificationModal from './src/components/PhoneVerificationModal';
 import EmailVerificationModal from './src/components/EmailVerificationModal';
 import CameraCapture from './src/components/CameraCapture';
+import MapComponent from './src/components/MapComponent';
 
 // Mock Gemini call for static run
 const callGeminiWithRetry = async (prompt: string): Promise<string> => {
@@ -126,6 +127,8 @@ export default function App() {
   const [isSupportChatOpen, setIsSupportChatOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState<UserRole | 'all'>('all');
+  const [allErrands, setAllErrands] = useState<Errand[]>([]);
+  const [onlineRunners, setOnlineRunners] = useState<User[]>([]);
 
   useEffect(() => {
     if (searchQuery.length > 0) {
@@ -188,15 +191,6 @@ export default function App() {
   const [authForm, setAuthForm] = useState({ name: '', email: '', phone: '', password: '', role: UserRole.REQUESTER });
 
   useEffect(() => {
-    // Silent Firebase Auth login to satisfy Firestore rules
-    signInAnonymously(auth).catch(err => console.error("Firebase Auth error:", err));
-
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        console.log("Firebase Auth user:", user.uid);
-      }
-    });
-
     // Test Firestore connection
     const testConnection = async () => {
       try {
@@ -209,8 +203,6 @@ export default function App() {
       }
     };
     testConnection();
-
-    return () => unsubscribeAuth();
   }, []);
 
   useEffect(() => {
@@ -262,7 +254,7 @@ export default function App() {
           const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setCurrentLocation(coords);
           if (user) {
-            firebaseService.updateUserSettings(user.id, { lastKnownLocation: coords });
+            firebaseService.updateUserLocation(user.id, coords);
           }
         },
         (err) => console.error("Geolocation error:", err),
@@ -270,7 +262,23 @@ export default function App() {
       );
       return () => navigator.geolocation.clearWatch(watchId);
     }
-  }, [user?.id, user]);
+  }, [user]);
+
+  useEffect(() => {
+    if (user && user.role === UserRole.RUNNER) {
+      firebaseService.updateUserSettings(user.id, { isOnline: true });
+      
+      // Set offline on tab close
+      const handleBeforeUnload = () => {
+        firebaseService.updateUserSettings(user.id, { isOnline: false });
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        firebaseService.updateUserSettings(user.id, { isOnline: false });
+      };
+    }
+  }, [user]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -310,6 +318,18 @@ export default function App() {
       if (unsubAvailable) unsubAvailable();
     };
   }, [user, selectedErrand]);
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const unsubErrands = firebaseService.subscribeToAllErrands(setAllErrands);
+    const unsubRunners = firebaseService.subscribeToOnlineRunners(setOnlineRunners);
+    
+    return () => {
+      unsubErrands();
+      unsubRunners();
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user || !selectedErrand) return;
@@ -743,7 +763,7 @@ export default function App() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between px-2">
                   <h3 className="text-base">Runners Nearby</h3>
-                  <button onClick={() => setShowNearbyRunners(true)} className="text-micro text-indigo-600 hover:underline">View Map</button>
+                  <button onClick={() => setActiveTab('live-map')} className="text-micro text-indigo-600 hover:underline">View Map</button>
                 </div>
                 <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar px-2 -mx-2">
                   {nearbyRunners.map((runner) => (
@@ -960,6 +980,51 @@ export default function App() {
           userRoleFilter={userRoleFilter}
           setUserRoleFilter={setUserRoleFilter}
         />}
+        {activeTab === 'live-map' && (
+          <div className="space-y-6 pb-12">
+            <div className="flex items-center justify-between px-2">
+              <div>
+                <h2 className="text-2xl font-black">Live Map</h2>
+                <p className="text-xs text-muted-foreground">Real-time runner locations and errand pins</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-100">
+                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+                  {onlineRunners.length} Runners Online
+                </div>
+              </div>
+            </div>
+            
+            <div className="h-[60vh] min-h-[500px]">
+              <MapComponent 
+                errands={allErrands.filter(e => e.status === ErrandStatus.PENDING || e.status === ErrandStatus.BIDDING)} 
+                runners={onlineRunners}
+                center={currentLocation || undefined}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-soft">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                    <MapPin size={16} />
+                  </div>
+                  <h4 className="text-xs font-black">Errand Pins</h4>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Blue markers represent available errands waiting for runners.</p>
+              </div>
+              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-soft">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                    <Navigation size={16} />
+                  </div>
+                  <h4 className="text-xs font-black">Runner Locations</h4>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Red markers show real-time locations of active runners.</p>
+              </div>
+            </div>
+          </div>
+        )}
         {activeTab === 'active' && (
            <div className="max-w-xl mx-auto pb-10 -mt-2 md:-mt-4">
             {!user ? (

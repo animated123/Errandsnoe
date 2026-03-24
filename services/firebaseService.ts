@@ -17,17 +17,19 @@ import {
   increment,
   limit
 } from 'firebase/firestore';
-import { signInAnonymously } from 'firebase/auth';
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  updateProfile
+} from 'firebase/auth';
 
 // Helper to simulate network delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Silent Firebase Auth login to satisfy Firestore rules
-signInAnonymously(auth).catch(err => console.error("Firebase Auth error:", err));
-
 // LocalStorage keys
 const KEYS = {
-  USERS: 'errand_runner_users',
   ERRANDS: 'errand_runner_errands',
   NOTIFICATIONS: 'errand_runner_notifications',
   SETTINGS: 'errand_runner_settings',
@@ -35,8 +37,7 @@ const KEYS = {
   SERVICE_LISTINGS: 'errand_runner_service_listings',
   RUNNER_APPLICATIONS: 'errand_runner_runner_applications',
   SUPPORT_CHATS: 'errand_runner_support_chats',
-  STATS: 'errand_runner_stats',
-  CURRENT_USER: 'errand_runner_current_user'
+  STATS: 'errand_runner_stats'
 };
 
 // Initial Data
@@ -61,84 +62,58 @@ const INITIAL_SERVICE_LISTINGS: ServiceListing[] = [
   { id: '2', title: 'Gikomba Shopping', price: 1000, category: 'Shopping', description: 'Detailed shopping from Gikomba market.' }
 ];
 
-// Helper to get data from localStorage
-const getLocal = (key: string, fallback: any = []) => {
-  const data = localStorage.getItem(key);
-  return data ? JSON.parse(data) : fallback;
-};
-
-// Helper to save data to localStorage
-const saveLocal = (key: string, data: any) => {
-  localStorage.setItem(key, JSON.stringify(data));
-};
-
-const INITIAL_USERS: User[] = [
-  {
-    id: 'admin-1',
-    name: 'Admin User',
-    email: 'ngugimaina4@gmail.com',
-    phone: '254700000000',
-    role: UserRole.ADMIN,
-    isAdmin: true,
-    loyaltyPoints: 0,
-    hoursSaved: 0,
-    loyaltyLevel: 'Platinum' as any,
-    createdAt: new Date().toISOString() as any
-  }
-];
-
-// Initialize data if not present
-if (!localStorage.getItem(KEYS.SETTINGS)) saveLocal(KEYS.SETTINGS, INITIAL_SETTINGS);
-if (!localStorage.getItem(KEYS.FEATURED_SERVICES)) saveLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
-if (!localStorage.getItem(KEYS.SERVICE_LISTINGS)) saveLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
-
-// Ensure admin user exists
-const currentUsers = getLocal(KEYS.USERS, []);
-if (!currentUsers.find((u: User) => u.email === 'ngugimaina4@gmail.com')) {
-  currentUsers.push(INITIAL_USERS[0]);
-  saveLocal(KEYS.USERS, currentUsers);
-}
-if (!currentUsers.find((u: User) => u.email === 'Errands@codexict.co.ke')) {
-  currentUsers.push({
-    ...INITIAL_USERS[0],
-    id: 'admin-2',
-    name: 'Super Admin',
-    email: 'Errands@codexict.co.ke'
-  });
-  saveLocal(KEYS.USERS, currentUsers);
-}
-
 export const firebaseService = {
   subscribeToAuth: (callback: (user: User | null) => void) => {
-    const checkAuth = () => {
-      const user = getLocal(KEYS.CURRENT_USER, null);
-      callback(user);
-    };
-    checkAuth();
-    window.addEventListener('storage', checkAuth);
-    return () => window.removeEventListener('storage', checkAuth);
+    return onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            callback({ ...userDoc.data(), id: firebaseUser.uid } as User);
+          } else {
+            // Fallback if doc doesn't exist yet (e.g. registration in progress)
+            callback({
+              id: firebaseUser.uid,
+              name: firebaseUser.displayName || 'User',
+              email: firebaseUser.email || '',
+              role: UserRole.REQUESTER,
+              isAdmin: false,
+              loyaltyPoints: 0,
+              hoursSaved: 0,
+              loyaltyLevel: 'Bronze' as any,
+              createdAt: new Date().toISOString() as any
+            } as User);
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+          callback(null);
+        }
+      } else {
+        callback(null);
+      }
+    });
   },
 
   login: async (email: string, pass: string): Promise<User> => {
-    await delay(500);
-    const users = getLocal(KEYS.USERS, []);
-    const user = users.find((u: User) => u.email === email);
-    if (user) {
-      saveLocal(KEYS.CURRENT_USER, user);
-      return user;
+    const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+    const firebaseUser = userCredential.user;
+    const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+    if (userDoc.exists()) {
+      return { ...userDoc.data(), id: firebaseUser.uid } as User;
     }
-    throw new Error('Invalid credentials');
+    throw new Error('User profile not found');
   },
 
   register: async (name: string, email: string, phone: string, pass: string): Promise<User> => {
-    await delay(500);
-    const users = getLocal(KEYS.USERS, []);
-    if (users.find((u: User) => u.email === email)) throw new Error('Email already in use');
+    const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+    const firebaseUser = userCredential.user;
     
+    await updateProfile(firebaseUser, { displayName: name });
+
     const isSuperAdmin = email === 'Errands@codexict.co.ke' || email === 'ngugimaina4@gmail.com';
     
     const newUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: firebaseUser.uid,
       name,
       email,
       phone,
@@ -149,30 +124,41 @@ export const firebaseService = {
       loyaltyLevel: 'Bronze' as any,
       createdAt: new Date().toISOString() as any
     };
-    
-    users.push(newUser);
-    saveLocal(KEYS.USERS, users);
-    saveLocal(KEYS.CURRENT_USER, newUser);
+
+    await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
     return newUser;
   },
 
   logout: async () => {
-    await delay(200);
-    localStorage.removeItem(KEYS.CURRENT_USER);
-    window.dispatchEvent(new Event('storage'));
+    await signOut(auth);
   },
 
-  updateUserSettings: async (userId: string, settings: Partial<User>) => {
-    const users = getLocal(KEYS.USERS, []);
-    const index = users.findIndex((u: User) => u.id === userId);
-    if (index !== -1) {
-      users[index] = { ...users[index], ...settings };
-      saveLocal(KEYS.USERS, users);
-      const currentUser = getLocal(KEYS.CURRENT_USER, null);
-      if (currentUser && currentUser.id === userId) {
-        saveLocal(KEYS.CURRENT_USER, users[index]);
-      }
-    }
+  updateUserSettings: async (userId: string, updates: Partial<User>) => {
+    await setDoc(doc(db, 'users', userId), updates, { merge: true });
+  },
+
+  updateUserLocation: async (userId: string, location: { lat: number, lng: number }) => {
+    await setDoc(doc(db, 'users', userId), { 
+      lastKnownLocation: location,
+      updatedAt: serverTimestamp() 
+    }, { merge: true });
+  },
+
+  subscribeToOnlineRunners: (callback: (runners: User[]) => void) => {
+    const q = query(
+      collection(db, 'users'), 
+      where('role', '==', UserRole.RUNNER),
+      where('isOnline', '==', true)
+    );
+    return onSnapshot(q, (snapshot) => {
+      callback(snapshot.docs.map(d => ({ ...d.data(), id: d.id } as User)));
+    });
+  },
+
+  subscribeToAllErrands: (callback: (errands: Errand[]) => void) => {
+    return onSnapshot(collection(db, 'errands'), (snapshot) => {
+      callback(snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand)));
+    });
   },
 
   subscribeToSettings: (callback: (settings: AppSettings) => void) => {
@@ -187,12 +173,12 @@ export const firebaseService = {
 
   getAppStats: async () => {
     await delay(300);
-    const users = getLocal(KEYS.USERS, []);
+    const usersSnapshot = await getDocs(collection(db, 'users'));
     const errandsSnapshot = await getDocs(collection(db, 'errands'));
     const errands = errandsSnapshot.docs.map(d => d.data() as Errand);
     
     return {
-      totalUsers: users.length,
+      totalUsers: usersSnapshot.size,
       totalTasks: errands.length,
       onlineUsers: Math.floor(Math.random() * 10),
       avgDistance: 5.2,
@@ -240,10 +226,12 @@ export const firebaseService = {
     });
     
     // Notify requester via SMS
-    const users = getLocal(KEYS.USERS, []);
-    const requester = users.find((u: User) => u.id === data.requesterId);
-    if (requester && requester.phone) {
-      smsService.sendSMS(requester.phone, `Hi ${requester.name}, your task "${data.title}" is now live on ErrandRunner! We'll notify you when runners start bidding.`);
+    const requesterDoc = await getDoc(doc(db, 'users', data.requesterId));
+    if (requesterDoc.exists()) {
+      const requester = requesterDoc.data() as User;
+      if (requester.phone) {
+        smsService.sendSMS(requester.phone, `Hi ${requester.name}, your task "${data.title}" is now live on ErrandRunner! We'll notify you when runners start bidding.`);
+      }
     }
 
     return { id: docRef.id };
@@ -286,9 +274,9 @@ export const firebaseService = {
   },
 
   getNearbyRunners: async (): Promise<User[]> => {
-    await delay(300);
-    const users = getLocal(KEYS.USERS, []);
-    return users.filter((u: User) => u.role === UserRole.RUNNER).slice(0, 10);
+    const q = query(collection(db, 'users'), where('role', '==', UserRole.RUNNER), limit(10));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as User));
   },
 
   submitForReview: async (errandId: string, comments: string, photo: string) => {
@@ -315,22 +303,20 @@ export const firebaseService = {
   },
 
   fetchAllUsers: async (): Promise<User[]> => {
-    await delay(300);
-    return getLocal(KEYS.USERS, []);
+    const snapshot = await getDocs(collection(db, 'users'));
+    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as User));
   },
 
   adminUpdateUser: async (userId: string, updates: any) => {
-    await firebaseService.updateUserSettings(userId, updates);
+    await setDoc(doc(db, 'users', userId), updates, { merge: true });
   },
 
   adminDisableUser: async (userId: string, disabled: boolean) => {
-    await firebaseService.updateUserSettings(userId, { disabled } as any);
+    await setDoc(doc(db, 'users', userId), { disabled }, { merge: true });
   },
 
   adminDeleteUser: async (userId: string) => {
-    const users = getLocal(KEYS.USERS, []);
-    const newUsers = users.filter((u: User) => u.id !== userId);
-    saveLocal(KEYS.USERS, newUsers);
+    await deleteDoc(doc(db, 'users', userId));
   },
 
   adminChangeUserPassword: async (userId: string, newPass: string) => {
@@ -376,9 +362,9 @@ export const firebaseService = {
   },
 
   markSupportChatAsRead: async (userId: string, isAdmin: boolean) => {
-    await updateDoc(doc(db, 'support_chats', userId), {
+    await setDoc(doc(db, 'support_chats', userId), {
       [isAdmin ? 'unreadByAdmin' : 'unreadByUser']: false
-    });
+    }, { merge: true });
   },
 
   sendSupportMessage: async (userId: string, senderName: string, text: string, isAdmin: boolean) => {
@@ -430,7 +416,13 @@ export const firebaseService = {
   },
 
   getCurrentUser: async (): Promise<User | null> => {
-    return getLocal(KEYS.CURRENT_USER, null);
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return null;
+    const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+    if (userDoc.exists()) {
+      return { ...userDoc.data(), id: firebaseUser.uid } as User;
+    }
+    return null;
   },
 
   updateMicroStep: async (errandId: string, stepIndex: number, completed: boolean) => {
@@ -482,10 +474,12 @@ export const firebaseService = {
     const errandData = errandSnap.data();
 
     // Notify runner via SMS
-    const users = getLocal(KEYS.USERS, []);
-    const runner = users.find((u: User) => u.id === runnerId);
-    if (runner && runner.phone) {
-      smsService.sendSMS(runner.phone, `Congratulations ${runner.name}! Your bid for "${errandData?.title}" has been accepted. Log in to start the task.`);
+    const runnerDoc = await getDoc(doc(db, 'users', runnerId));
+    if (runnerDoc.exists()) {
+      const runner = runnerDoc.data() as User;
+      if (runner.phone) {
+        smsService.sendSMS(runner.phone, `Congratulations ${runner.name}! Your bid for "${errandData?.title}" has been accepted. Log in to start the task.`);
+      }
     }
   },
 
@@ -556,19 +550,14 @@ export const firebaseService = {
   },
 
   toggleFavoriteRunner: async (userId: string, runnerId: string) => {
-    const users = getLocal(KEYS.USERS, []);
-    const index = users.findIndex((u: User) => u.id === userId);
-    if (index !== -1) {
-      const favorites = users[index].favoriteRunners || [];
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      const favorites = userSnap.data().favoriteRunners || [];
       const newFavorites = favorites.includes(runnerId)
         ? favorites.filter((id: string) => id !== runnerId)
         : [...favorites, runnerId];
-      users[index].favoriteRunners = newFavorites;
-      saveLocal(KEYS.USERS, users);
-      const currentUser = getLocal(KEYS.CURRENT_USER, null);
-      if (currentUser && currentUser.id === userId) {
-        saveLocal(KEYS.CURRENT_USER, users[index]);
-      }
+      await updateDoc(userRef, { favoriteRunners: newFavorites });
     }
   },
 

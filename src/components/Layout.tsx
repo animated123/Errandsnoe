@@ -20,7 +20,7 @@ export default function Layout({ user, onLogout, activeTab, setActiveTab, childr
     { id: 'dashboard', label: 'Home', icon: Home },
     { id: 'my-errands', label: 'Tasks', icon: List },
     { id: 'create', label: 'Post', icon: PlusCircle, primary: true },
-    { id: 'find', label: 'Explore', icon: Map },
+    { id: 'live-map', label: 'Map', icon: Map },
     { id: 'active', label: 'Profile', icon: UserCircle },
   ];
 
