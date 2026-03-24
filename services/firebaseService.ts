@@ -586,8 +586,38 @@ export const firebaseService = {
 
 export const cloudinaryService = {
   uploadImage: async (file: File | string, folder?: string, tags?: string): Promise<string> => {
-    await delay(1000);
-    return "https://picsum.photos/seed/" + Math.random() + "/800/600";
+    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+
+    if (!cloudName || !uploadPreset) {
+      console.warn('Cloudinary config missing, using mock');
+      await delay(1000);
+      return "https://picsum.photos/seed/" + Math.random() + "/800/600";
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', uploadPreset);
+    if (folder) formData.append('folder', folder);
+    if (tags) formData.append('tags', tags);
+
+    try {
+      const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || 'Failed to upload image to Cloudinary');
+      }
+
+      const data = await response.json();
+      return data.secure_url;
+    } catch (error) {
+      console.error('Cloudinary upload error:', error);
+      throw error;
+    }
   },
   uploadFile: async (file: File | string, type?: string, folder?: string): Promise<string> => {
     return cloudinaryService.uploadImage(file, folder);

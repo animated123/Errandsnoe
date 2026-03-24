@@ -70,7 +70,7 @@ export default function Layout({ user, onLogout, activeTab, setActiveTab, childr
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 pb-32">
+      <main className="flex-1 pb-24">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}

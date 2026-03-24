@@ -25,7 +25,7 @@ export default function CreateScreen({ user, errandForm, setErrandForm, postErra
   return (
     <div className="space-y-6 pb-20">
       <div className="px-2">
-        <h2 className="text-3xl font-black text-slate-900 tracking-tight">Create Errand</h2>
+        <h2 className="text-2xl font-black text-slate-900 tracking-tight">Create Errand</h2>
         <p className="text-micro text-slate-400 font-bold uppercase tracking-widest">Tell us what you need help with</p>
       </div>
 

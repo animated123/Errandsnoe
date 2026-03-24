@@ -12,7 +12,7 @@ import {
   ChevronRight, Volume2, CheckCircle2, AlertTriangle, Droplets, Wifi, Shield, Car, ShieldCheck, Heart, Edit2, UserMinus,
   Settings, Palette, ImageIcon as LucideImageIcon, Save, Upload, Download,
   HelpCircle, PlusCircle, Filter, UserCircle,
-  Mic, Square, Play, Pause, ChevronUp, ChevronDown, RefreshCw
+  Mic, Square, Play, Pause, ChevronUp, ChevronDown, RefreshCw, ZoomIn
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -113,9 +113,14 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [zoom, setZoom] = useState(() => {
+    const saved = localStorage.getItem('app-zoom');
+    return saved ? parseInt(saved) : 100;
+  });
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [smartInput, setSmartInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
+  const [isSupportChatOpen, setIsSupportChatOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState<UserRole | 'all'>('all');
 
@@ -178,6 +183,11 @@ export default function App() {
     marketSection: ''
   });
   const [authForm, setAuthForm] = useState({ name: '', email: '', phone: '', password: '', role: UserRole.REQUESTER });
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${zoom}%`;
+    localStorage.setItem('app-zoom', zoom.toString());
+  }, [zoom]);
 
   useEffect(() => {
     const unsub = firebaseService.subscribeToAuth(u => {
@@ -501,21 +511,21 @@ export default function App() {
       <TopProgressBar isLoading={isProcessing} />
       <div className="max-w-5xl mx-auto space-y-3 px-2">
         {activeTab === 'dashboard' && (
-          <div className="space-y-8 pb-12">
+          <div className="space-y-4 pb-8">
             {/* Hero Section */}
             <div className="relative group">
               <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-violet-700 to-fuchsia-800 rounded-[2.5rem] blur-2xl opacity-20 group-hover:opacity-30 transition-opacity duration-500"></div>
-              <div className="bg-gradient-to-br from-indigo-600 via-violet-700 to-fuchsia-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-strong min-h-[220px] flex flex-col justify-center">
+              <div className="bg-gradient-to-br from-indigo-600 via-violet-700 to-fuchsia-800 rounded-[2rem] p-5 text-white relative overflow-hidden shadow-strong min-h-[140px] flex flex-col justify-center">
                 <div className="relative z-10 max-w-md">
                   <motion.div
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.1 }}
                   >
-                    <h2 className="text-4xl font-black mb-1 tracking-tight leading-none">
+                    <h2 className="text-xl font-black mb-0.5 tracking-tight leading-none">
                       Hello, {user?.name ? user.name.split(' ')[0] : 'Guest'}!
                     </h2>
-                    <p className="text-base font-bold uppercase tracking-[0.2em] opacity-70 mb-6">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70 mb-3">
                       Your personal errand assistant
                     </p>
                   </motion.div>
@@ -524,35 +534,35 @@ export default function App() {
                     <div className="grid grid-cols-3 gap-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
                       <div className="bg-white/10 backdrop-blur-xl p-4 rounded-2xl border border-white/10 hover:bg-white/20 transition-colors">
                         <p className="text-micro opacity-70 mb-1">Users</p>
-                        <p className="text-2xl font-black">{stats.totalUsers.toLocaleString()}</p>
+                        <p className="text-xl font-black">{stats.totalUsers.toLocaleString()}</p>
                       </div>
                       <div className="bg-white/10 backdrop-blur-xl p-4 rounded-2xl border border-white/10 hover:bg-white/20 transition-colors">
                         <p className="text-micro opacity-70 mb-1">Tasks</p>
-                        <p className="text-2xl font-black">{stats.totalTasks.toLocaleString()}</p>
+                        <p className="text-xl font-black">{stats.totalTasks.toLocaleString()}</p>
                       </div>
                       <div className="bg-white/10 backdrop-blur-xl p-4 rounded-2xl border border-white/10 hover:bg-white/20 transition-colors">
                         <p className="text-micro opacity-70 mb-1">Live</p>
-                        <p className="text-2xl font-black text-emerald-300">{stats.onlineUsers}</p>
+                        <p className="text-xl font-black text-emerald-300">{stats.onlineUsers}</p>
                       </div>
                     </div>
                   ) : (
                     <div className="flex gap-3">
                       <button 
                         onClick={() => setActiveTab('create')}
-                        className="px-6 py-3 bg-white text-indigo-600 rounded-2xl font-black uppercase text-sm tracking-widest shadow-strong hover:scale-105 active:scale-95 transition-all"
+                        className="px-6 py-3 bg-white text-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest shadow-strong hover:scale-105 active:scale-95 transition-all"
                       >
                         Post New Task
                       </button>
                       <button 
                         onClick={() => setActiveTab('find')}
-                        className="px-6 py-3 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-white/20 transition-all"
+                        className="px-6 py-3 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-white/20 transition-all"
                       >
                         Find Runners
                       </button>
                     </div>
                   )}
                 </div>
-                <Sparkles className="absolute -right-8 -bottom-8 text-white/10 rotate-12" size={200} />
+                <Sparkles className="absolute -right-8 -bottom-8 text-white/10 rotate-12" size={120} />
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
               </div>
             </div>
@@ -570,7 +580,7 @@ export default function App() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search for services or tasks..." 
-                    className="w-full pl-14 pr-6 py-5 bg-white border border-slate-100 rounded-[2rem] font-bold text-foreground text-base outline-none focus:ring-8 focus:ring-primary/5 focus:border-primary/20 transition-all shadow-soft"
+                    className="w-full pl-14 pr-6 py-5 bg-white border border-slate-100 rounded-[2rem] font-bold text-foreground outline-none focus:ring-8 focus:ring-primary/5 focus:border-primary/20 transition-all shadow-soft"
                   />
                   {searchSuggestions.length > 0 && (
                     <div className="absolute top-full left-0 right-0 mt-3 bg-white rounded-[2rem] border border-slate-100 shadow-strong overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300 z-50">
@@ -584,7 +594,7 @@ export default function App() {
                             setSearchQuery(s);
                             setSearchSuggestions([]);
                           }}
-                          className="w-full px-6 py-4 text-left text-base font-bold text-slate-600 hover:bg-secondary border-b border-slate-50 last:border-none transition-colors flex items-center gap-4 group"
+                          className="w-full px-6 py-4 text-left text-sm font-bold text-slate-600 hover:bg-secondary border-b border-slate-50 last:border-none transition-colors flex items-center gap-4 group"
                         >
                           <div className="w-8 h-8 bg-secondary rounded-xl flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors">
                             <Sparkles size={14} />
@@ -599,8 +609,8 @@ export default function App() {
                 {/* Categories */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between px-2">
-                    <h3 className="text-2xl">Popular Categories</h3>
-                    <button onClick={() => setActiveTab('menu')} className="text-xs text-indigo-600 hover:underline">See All</button>
+                    <h3 className="text-xl">Popular Categories</h3>
+                    <button onClick={() => setActiveTab('menu')} className="text-micro text-indigo-600 hover:underline">See All</button>
                   </div>
                   <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar px-2 -mx-2">
                     {Object.values(ErrandCategory).map((cat) => (
@@ -610,13 +620,13 @@ export default function App() {
                           setErrandForm({ ...errandForm, category: cat });
                           setActiveTab('create');
                         }}
-                        className="flex-shrink-0 w-28 group"
+                        className="flex-shrink-0 w-24 group"
                       >
-                        <div className="aspect-square bg-white rounded-[2rem] border border-slate-100 shadow-soft flex flex-col items-center justify-center gap-3 group-hover:shadow-strong group-hover:border-indigo-100 transition-all group-hover:-translate-y-1">
-                          <div className="w-12 h-12 bg-secondary rounded-2xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
+                        <div className="aspect-square bg-white rounded-[2rem] border border-slate-100 shadow-soft flex flex-col items-center justify-center gap-2 group-hover:shadow-strong group-hover:border-indigo-100 transition-all group-hover:-translate-y-1">
+                          <div className="w-10 h-10 bg-secondary rounded-2xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
                             <img src={`https://picsum.photos/seed/${cat}/100/100`} className="w-full h-full object-cover rounded-2xl opacity-80 group-hover:opacity-100 transition-opacity" alt={cat} />
                           </div>
-                          <p className="text-xs text-slate-600 group-hover:text-indigo-600 transition-colors px-2 text-center leading-tight">{cat}</p>
+                          <p className="text-micro text-slate-600 group-hover:text-indigo-600 transition-colors px-2 text-center leading-tight">{cat}</p>
                         </div>
                       </button>
                     ))}
@@ -626,27 +636,27 @@ export default function App() {
 
               <div className="lg:col-span-5">
                 {/* Smart Create NLP */}
-                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-soft space-y-6 h-full flex flex-col">
+                <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-soft space-y-4 h-full flex flex-col">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-2xl">Quick Post</h3>
-                      <p className="text-xs text-muted-foreground">AI-Powered Assistant</p>
+                      <h3 className="text-lg">Quick Post</h3>
+                      <p className="text-micro text-muted-foreground">AI Assistant</p>
                     </div>
-                    <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner">
-                      <Zap size={24} />
+                    <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 shadow-inner">
+                      <Zap size={20} />
                     </div>
                   </div>
                   <div className="relative flex-1">
                     <textarea 
                       value={smartInput}
                       onChange={(e) => setSmartInput(e.target.value)}
-                      placeholder="e.g. I need someone to buy me onions at Muthurwa market..."
-                      className="w-full h-full min-h-[120px] p-5 bg-secondary/50 border-none rounded-2xl text-base font-bold outline-none resize-none focus:ring-8 focus:ring-indigo-500/5 transition-all placeholder:text-slate-400"
+                      placeholder="What do you need help with?"
+                      className="w-full h-full min-h-[80px] p-3 bg-secondary/50 border-none rounded-xl text-xs font-bold outline-none resize-none focus:ring-8 focus:ring-indigo-500/5 transition-all placeholder:text-slate-400"
                     />
                     <button 
                       onClick={handleSmartCreate}
                       disabled={isParsing || !smartInput.trim()}
-                      className="absolute bottom-4 right-4 px-6 py-3 bg-black text-white rounded-2xl text-xs shadow-strong active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+                      className="absolute bottom-4 right-4 px-6 py-3 bg-black text-white rounded-2xl text-micro shadow-strong active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
                     >
                       {isParsing ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                       Post Now
@@ -657,40 +667,39 @@ export default function App() {
             </div>
 
             {/* Featured Services */}
-            <div className="space-y-6">
+            <div className="space-y-3">
               <div className="flex items-center justify-between px-2">
-                <h3 className="text-xl">Featured Services</h3>
-                <p className="text-micro text-muted-foreground">Top rated in Nairobi</p>
+                <h3 className="text-base">Featured Services</h3>
+                <button onClick={() => setActiveTab('menu')} className="text-[10px] text-indigo-600 hover:underline">View All</button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar px-2 -mx-2">
                 {featuredServices.length === 0 ? (
                   Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="bg-white rounded-[2.5rem] p-5 border border-slate-100 shadow-soft animate-pulse">
-                      <div className="aspect-square bg-secondary rounded-[2rem] mb-4"></div>
-                      <div className="h-4 bg-secondary rounded w-3/4 mb-2"></div>
-                      <div className="h-3 bg-secondary rounded w-1/2"></div>
+                    <div key={i} className="flex-shrink-0 w-28 bg-white rounded-xl p-2 border border-slate-100 shadow-soft animate-pulse">
+                      <div className="aspect-[4/3] bg-secondary rounded-lg mb-2"></div>
+                      <div className="h-2 bg-secondary rounded w-3/4 mb-1"></div>
                     </div>
                   ))
                 ) : (
                   featuredServices.map(service => (
                     <motion.div 
                       key={service.id} 
-                      whileHover={{ y: -8 }}
+                      whileHover={{ y: -2 }}
                       onClick={() => setSelectedFeaturedService(service)}
-                      className="bg-white rounded-[2.5rem] overflow-hidden border border-slate-100 shadow-soft hover:shadow-strong transition-all group cursor-pointer"
+                      className="flex-shrink-0 w-24 bg-white rounded-xl overflow-hidden border border-slate-100 shadow-soft hover:shadow-strong transition-all group cursor-pointer"
                     >
-                      <div className="aspect-square relative overflow-hidden m-2 rounded-[2rem]">
-                        <img src={service.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" alt={service.title} />
+                      <div className="aspect-square relative overflow-hidden m-1 rounded-lg">
+                        <img src={service.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={service.title} />
                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                           <div className="bg-white text-black px-4 py-2 rounded-xl text-micro shadow-strong">View Details</div>
+                           <div className="bg-white text-black px-2 py-1 rounded-md text-[7px] font-black uppercase tracking-tighter shadow-strong">View</div>
                         </div>
                       </div>
-                      <div className="p-6 pt-2">
-                        <h4 className="text-lg mb-1 truncate">{service.title}</h4>
+                      <div className="p-2 pt-0">
+                        <h4 className="text-[10px] font-black mb-0.5 truncate text-slate-900">{service.title}</h4>
                         <div className="flex items-center justify-between">
-                          <p className="text-sm font-black text-indigo-600">KSH {service.price.toLocaleString()}</p>
-                          <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center group-hover:bg-black group-hover:text-white transition-all">
-                            <Plus size={16} />
+                          <p className="text-[9px] font-black text-indigo-600">KSH {service.price.toLocaleString()}</p>
+                          <div className="w-5 h-5 bg-secondary rounded-full flex items-center justify-center group-hover:bg-black group-hover:text-white transition-all">
+                            <Plus size={10} />
                           </div>
                         </div>
                       </div>
@@ -702,22 +711,22 @@ export default function App() {
 
             {/* Nearby Runners for Requesters */}
             {user?.role === UserRole.REQUESTER && nearbyRunners.length > 0 && (
-              <div className="space-y-6">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between px-2">
-                  <h3 className="text-xl">Runners Nearby</h3>
+                  <h3 className="text-base">Runners Nearby</h3>
                   <button onClick={() => setShowNearbyRunners(true)} className="text-micro text-indigo-600 hover:underline">View Map</button>
                 </div>
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar px-2 -mx-2">
+                <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar px-2 -mx-2">
                   {nearbyRunners.map((runner) => (
-                    <div key={runner.id} className="flex-shrink-0 w-48 bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-soft flex flex-col items-center text-center gap-3">
-                      <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-strong">
+                    <div key={runner.id} className="flex-shrink-0 w-36 bg-white p-4 rounded-3xl border border-slate-100 shadow-soft flex flex-col items-center text-center gap-2">
+                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-strong">
                         <img src={runner.profilePhoto || runner.avatar || `https://ui-avatars.com/api/?name=${runner.name}`} className="w-full h-full object-cover" alt={runner.name} />
                       </div>
                       <div>
-                        <h4 className="text-sm truncate w-full">{runner.name.split(' ')[0]}</h4>
+                        <h4 className="text-xs truncate w-full font-black">{runner.name.split(' ')[0]}</h4>
                         <div className="flex items-center justify-center gap-1 text-amber-500">
-                          <Star size={10} fill="currentColor" />
-                          <span className="text-[10px] font-black">{runner.rating || 5.0}</span>
+                          <Star size={8} fill="currentColor" />
+                          <span className="text-[9px] font-black">{runner.rating || 5.0}</span>
                         </div>
                       </div>
                       <button 
@@ -725,7 +734,7 @@ export default function App() {
                           setErrandForm({ ...errandForm, category: ErrandCategory.GENERAL });
                           setActiveTab('create');
                         }}
-                        className="w-full py-2 bg-secondary rounded-xl text-micro hover:bg-black hover:text-white transition-all"
+                        className="w-full py-1.5 bg-secondary rounded-lg text-[8px] font-black uppercase tracking-widest hover:bg-black hover:text-white transition-all"
                       >
                         Hire
                       </button>
@@ -736,9 +745,9 @@ export default function App() {
             )}
 
             {/* Recent Activity */}
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
-                <h3 className="text-xl">Recent Activity</h3>
+                <h3 className="text-base">Recent Activity</h3>
                 <button onClick={() => setActiveTab('my-errands')} className="text-micro text-muted-foreground">View All</button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -795,7 +804,15 @@ export default function App() {
                         <div className="absolute inset-0 bg-gradient-to-tr from-indigo-100 to-transparent opacity-50" />
                         <Sparkles size={48} className="text-indigo-400 relative z-10" />
                       </div>
-                      <h3 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Your afternoon looks busy</h3>
+                      <h3 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">
+                        {(() => {
+                          const hour = new Date().getHours();
+                          if (hour < 12) return "Good morning! Ready to start?";
+                          if (hour < 17) return "Your afternoon looks busy";
+                          if (hour < 21) return "Good evening! Wrapping up?";
+                          return "Working late tonight?";
+                        })()}
+                      </h3>
                       <p className="text-base font-bold text-slate-400 mb-10 max-w-[280px] mx-auto leading-relaxed">Want us to handle the laundry or run some errands for you?</p>
                       <button 
                         onClick={() => setActiveTab('create')}
@@ -951,6 +968,7 @@ export default function App() {
                 
                 <div className="mt-12 space-y-1">
                   <ProfileMenuItem icon={<Globe size={18} />} label="Change Language" onClick={() => setShowLanguageModal(true)} />
+                  <ProfileMenuItem icon={<MessageCircle size={18} />} label="Live Support" onClick={() => setIsSupportChatOpen(true)} />
                   <ProfileMenuItem icon={<Calculator size={18} />} label="Price Guide" onClick={() => setShowPriceGuideModal(true)} />
                   <ProfileMenuItem icon={<HelpCircle size={18} />} label="FAQs" />
                   <ProfileMenuItem icon={<Phone size={18} />} label="Contact Us" onClick={() => setShowContactUsModal(true)} />
@@ -1027,6 +1045,38 @@ export default function App() {
                       )}
 
                       <button onClick={() => firebaseService.logout().then(() => setUser(null))} className="w-full mt-3 py-3.5 border border-red-100 text-red-500 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-50 transition-all">Sign Out</button>
+                    </div>
+
+                    {/* Zoomer Section */}
+                    <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><ZoomIn size={18} /></div>
+                          <div>
+                            <h3 className="text-sm font-black text-slate-900">Interface Scale</h3>
+                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Adjust for your comfort</p>
+                          </div>
+                        </div>
+                        <div className="bg-indigo-600 text-white px-3 py-1 rounded-full text-[10px] font-black">
+                          {zoom}%
+                        </div>
+                      </div>
+                      <div className="px-2">
+                        <input 
+                          type="range" 
+                          min="70" 
+                          max="130" 
+                          step="5"
+                          value={zoom}
+                          onChange={(e) => setZoom(parseInt(e.target.value))}
+                          className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                        />
+                        <div className="flex justify-between mt-2 px-1">
+                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Compact</span>
+                          <button onClick={() => setZoom(100)} className="text-[8px] font-black text-indigo-600 uppercase tracking-tighter hover:underline">Reset</button>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Large</span>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Loyalty & Impact Section */}
@@ -1203,7 +1253,13 @@ export default function App() {
       {showLanguageModal && <LanguageModal onClose={() => setShowLanguageModal(false)} />}
       {showPriceGuideModal && <PriceGuideModal onClose={() => setShowPriceGuideModal(false)} />}
       {showContactUsModal && <ContactUsModal onClose={() => setShowContactUsModal(false)} setActiveTab={setActiveTab} />}
-      {user && !user.isAdmin && <SupportChatOverlay user={user} />}
+      {user && !user.isAdmin && activeTab === 'active' && (
+        <SupportChatOverlay 
+          user={user} 
+          isOpen={isSupportChatOpen} 
+          setIsOpen={setIsSupportChatOpen} 
+        />
+      )}
       {showLoyaltyModal && <LoyaltyBenefitsModal onClose={() => setShowLoyaltyModal(false)} />}
       
       {showPriceRequestModal && (
@@ -3256,6 +3312,14 @@ const ProfileEditor: React.FC<{
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
             {isUploading ? 'Uploading...' : 'Tap photo to change'}
           </p>
+          <button 
+            type="button"
+            onClick={() => document.getElementById('avatar-upload')?.click()}
+            className="mt-1 px-4 py-2 bg-slate-100 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2"
+          >
+            <Upload size={12} />
+            Upload New Photo
+          </button>
         </div>
 
         <div className="space-y-1.5">

@@ -46,7 +46,7 @@ export default function ErrandCard({ errand, onClick, currentLocation }: ErrandC
       </div>
 
       <div className="mb-4">
-        <h3 className="text-xl font-black leading-tight mb-1 group-hover:text-primary transition-colors">
+        <h3 className="text-lg font-black leading-tight mb-1 group-hover:text-primary transition-colors">
           {errand.title}
         </h3>
         <p className="text-sm text-muted-foreground line-clamp-2 font-medium">

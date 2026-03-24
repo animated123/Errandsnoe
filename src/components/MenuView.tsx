@@ -20,7 +20,7 @@ export default function MenuView({ listings, onSelect }: MenuViewProps) {
   return (
     <div className="space-y-6 pb-20">
       <div className="px-2">
-        <h2 className="text-3xl font-black text-slate-900 tracking-tight">Services</h2>
+        <h2 className="text-2xl font-black text-slate-900 tracking-tight">Services</h2>
         <p className="text-micro text-slate-400 font-bold uppercase tracking-widest">Browse available services</p>
       </div>
 
