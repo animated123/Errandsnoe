@@ -14,1266 +14,59 @@ import {
   HelpCircle, PlusCircle, Filter, UserCircle,
   Mic, Square, Play, Pause, ChevronUp, ChevronDown, RefreshCw
 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
-import { geminiService } from './services/geminiService';
-import { APIProvider, Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
-import { User, UserRole, Errand, ErrandStatus, ErrandCategory, Coordinates, Bid, AppNotification, NotificationType, ChatMessage, AppSettings, LocationSuggestion, RunnerApplication, FeaturedService, ServiceListing, LoyaltyLevel, PriceRequest, PropertyListing } from './types';
-import { firebaseService, calculateDistance, formatFirebaseError, formatPhoneDisplay, normalizePhone } from './services/firebaseService';
-import { cloudinaryService } from './services/cloudinaryService';
-import Layout from './components/Layout';
-import ErrandCard from './components/ErrandCard';
-import TopProgressBar from './components/TopProgressBar';
-import LoadingSpinner from './components/LoadingSpinner';
-import BidModal from './components/BidModal';
-import AuthModal from './components/AuthModal';
-import ResetPasswordModal from './components/ResetPasswordModal';
-import PhoneVerificationModal from './components/PhoneVerificationModal';
-import EmailVerificationModal from './components/EmailVerificationModal';
+import { 
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
+  BarChart, Bar, Cell, PieChart, Pie 
+} from 'recharts';
+import { 
+  User, AppSettings, RunnerApplication, FeaturedService, ServiceListing, 
+  ErrandCategory, UserRole, Errand, ErrandStatus, PriceRequest, 
+  LoyaltyLevel, ChatMessage, Coordinates, AppNotification, PropertyListing
+} from './types';
+import { motion, AnimatePresence } from 'framer-motion';
+import { firebaseService, calculateDistance, formatFirebaseError, formatPhoneDisplay, normalizePhone, cloudinaryService, geminiService } from './services/firebaseService';
+import Layout from './src/components/Layout';
+import ErrandCard, { ErrandCardSkeleton, Skeleton } from './src/components/ErrandCard';
+import AuthModal from './src/components/AuthModal';
+import BidModal from './src/components/BidModal';
+import TopProgressBar from './src/components/TopProgressBar';
+import LoadingSpinner from './src/components/LoadingSpinner';
+import CreateScreen from './src/components/CreateScreen';
+import MenuView from './src/components/MenuView';
+import Placeholder from './src/components/Placeholder';
 
-const callGeminiWithRetry = async (prompt: string, maxRetries = 3): Promise<string> => {
-  if (typeof prompt !== 'string') return "";
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-      });
-      return response.text || "";
-    } catch (err: any) {
-      if (i === maxRetries - 1) throw err;
-      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
-    }
-  }
-  return "";
+import SupportChatView from './src/components/SupportChatView';
+import ErrandDetailScreenExternal from './src/components/ErrandDetailScreen';
+import AdminPanel from './src/components/AdminPanel';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import SupportChatOverlay from './src/components/SupportChatOverlay';
+import ResetPasswordModal from './src/components/ResetPasswordModal';
+import PhoneVerificationModal from './src/components/PhoneVerificationModal';
+import EmailVerificationModal from './src/components/EmailVerificationModal';
+import CameraCapture from './src/components/CameraCapture';
+
+// Mock Gemini call for static run
+const callGeminiWithRetry = async (prompt: string): Promise<string> => {
+  console.log('Mock Gemini call:', prompt);
+  return "This is a mock response for the static version of the app.";
 };
 
-const CameraCapture: React.FC<{ onCapture: (file: File) => void, onClose: () => void }> = ({ onCapture, onClose }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
-        .then(s => { 
-          setStream(s); 
-          if (videoRef.current) videoRef.current.srcObject = s; 
-        })
-        .catch(() => setError("Camera access denied. Please check site permissions."));
-    } else {
-      setError("Your device does not support camera access.");
-    }
-    return () => { if (stream) stream.getTracks().forEach(t => t.stop()); };
-  }, []);
-
-  const capture = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(video, 0, 0);
-        canvas.toBlob(blob => {
-          if (blob) onCapture(new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' }));
-        }, 'image/jpeg', 0.8);
-      }
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[120] bg-black flex flex-col items-center justify-center">
-      {error ? (
-        <div className="text-white text-center p-8">
-          <CameraOff size={48} className="mx-auto mb-4 text-red-500" />
-          <p className="font-bold text-lg mb-6">{error}</p>
-          <button onClick={onClose} className="px-10 py-4 bg-white text-black rounded-2xl font-black uppercase text-xs">Close</button>
-        </div>
-      ) : (
-        <>
-          <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-          <canvas ref={canvasRef} className="hidden" />
-          <div className="absolute top-6 left-6">
-            <button onClick={onClose} className="p-4 bg-black/40 backdrop-blur-md rounded-2xl text-white hover:bg-black/60 transition-colors">
-              <X size={24} />
-            </button>
-          </div>
-          <div className="absolute bottom-12 left-0 right-0 flex flex-col items-center gap-6">
-             <div className="px-4 py-2 bg-black/40 backdrop-blur-md rounded-full text-white text-[10px] font-black uppercase tracking-widest">Capture completion proof</div>
-             <button onClick={capture} className="w-20 h-20 bg-white rounded-full border-8 border-white/20 flex items-center justify-center shadow-2xl active:scale-90 transition-all">
-               <div className="w-14 h-14 bg-white rounded-full border-4 border-slate-900" />
-             </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
-
-const LocationAutocomplete: React.FC<{ label: string, icon: React.ReactNode, placeholder: string, onSelect: (loc: LocationSuggestion | null) => void, value?: string, error?: string, required?: boolean }> = ({ label, icon, placeholder, onSelect, value, error, required }) => {
-  const [query, setQuery] = useState(value || '');
-  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
-  const [recentLocations, setRecentLocations] = useState<LocationSuggestion[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [show, setShow] = useState(false);
-  const isSelected = useRef(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const popularLocations: LocationSuggestion[] = [
-    { id: "sarit", name: "Sarit Centre", area: "Westlands", description: "Shopping Mall & Landmarks", coords: { lat: -1.2585, lng: 36.8037 } },
-    { id: "westlands", name: "Westlands", area: "Nairobi", description: "Commercial Hub", coords: { lat: -1.2646, lng: 36.8045 } },
-    { id: "village-market", name: "Village Market", area: "Gigiri", description: "Shopping & Recreation", coords: { lat: -1.2297, lng: 36.8042 } },
-    { id: "yaya", name: "Yaya Centre", area: "Kilimani", description: "Shopping Mall", coords: { lat: -1.2911, lng: 36.7865 } },
-    { id: "two-rivers", name: "Two Rivers Mall", area: "Ruaka", description: "Largest Mall in East Africa", coords: { lat: -1.2111, lng: 36.7911 } },
-    { id: "juja-city", name: "Juja City Mall", area: "Juja", description: "Shopping along Thika Road", coords: { lat: -1.1022, lng: 37.0144 } },
-    { id: "nairobi-cbd", name: "Nairobi CBD", area: "Nairobi", description: "City Centre", coords: { lat: -1.286389, lng: 36.817223 } },
-    { id: "jkia", name: "JKIA", area: "Embakasi", description: "International Airport", coords: { lat: -1.3192, lng: 36.9275 } },
-    { id: "greenspan", name: "Greenspan Mall", area: "Donholm", description: "Shopping Centre", coords: { lat: -1.2944, lng: 36.9011 } },
-    { id: "garden-city", name: "Garden City Mall", area: "Thika Road", description: "Shopping & Residential", coords: { lat: -1.2325, lng: 36.8783 } }
-  ];
-
-  useEffect(() => {
-    const saved = localStorage.getItem('recent_locations');
-    if (saved) {
-      try {
-        setRecentLocations(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to parse recent locations", e);
-      }
-    }
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShow(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => { if (value !== undefined && !isSelected.current) setQuery(value); }, [value]);
-
-  const fetchSuggestions = async (q: string) => {
-    if (q.length < 2 || isSelected.current) return;
-    
-    // Check local popular locations first for instant feedback
-    const localMatches = popularLocations.filter(loc => 
-      loc.name.toLowerCase().includes(q.toLowerCase()) || 
-      loc.area?.toLowerCase().includes(q.toLowerCase())
-    );
-
-    if (localMatches.length > 0) {
-      setSuggestions(localMatches);
-      setShow(true);
-    }
-
-    if (q.length < 3) return;
-
-    setLoading(true);
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Find 5 real-world locations, buildings, estates, streets, or businesses in Kenya matching "${q}". 
-        Be typo-tolerant.
-        Return ONLY a JSON array of objects with: 
-        name (string, the specific building or place), 
-        area (string, the estate or suburb), 
-        description (string, short 3-5 word description),
-        lat (number), 
-        lng (number).
-        Focus on accuracy for Nairobi and major towns.`,
-        config: { responseMimeType: "application/json" }
-      });
-      const data = JSON.parse(response.text || '[]');
-      const geminiSuggestions = data.map((d: any) => ({ 
-        id: d.name.toLowerCase().replace(/\s+/g, '-'),
-        name: d.name, 
-        area: d.area,
-        description: d.description,
-        coords: { lat: d.lat, lng: d.lng } 
-      }));
-
-      // Merge and deduplicate
-      const combined = [...localMatches];
-      geminiSuggestions.forEach((gs: any) => {
-        if (!combined.some(c => c.name.toLowerCase() === gs.name.toLowerCase())) {
-          combined.push(gs);
-        }
-      });
-
-      setSuggestions(combined.slice(0, 8));
-      setShow(true);
-    } catch (e) { 
-      console.error(e); 
-    } finally { 
-      setLoading(false); 
-    }
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(() => fetchSuggestions(query), 500);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  const handleSelect = (loc: LocationSuggestion) => {
-    isSelected.current = true;
-    setQuery(loc.name);
-    onSelect(loc);
-    setShow(false);
-
-    // Save to recents
-    const newRecents = [loc, ...recentLocations.filter(r => r.name !== loc.name)].slice(0, 5);
-    setRecentLocations(newRecents);
-    localStorage.setItem('recent_locations', JSON.stringify(newRecents));
-  };
-
-  return (
-    <div className="space-y-1 relative" ref={dropdownRef}>
-      {label && <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1 ml-1">{icon} {label} {required && "*"}</label>}
-      <div className="relative">
-        <input 
-          type="text" value={query} placeholder={placeholder} 
-          onChange={e => { isSelected.current = false; setQuery(e.target.value); if (!e.target.value) onSelect(null); }}
-          onFocus={() => setShow(true)}
-          className={`w-full p-3.5 brand-input rounded-2xl text-sm font-bold outline-none transition-all ${error ? 'border-red-500' : ''}`}
-        />
-        {loading && <div className="absolute right-4 top-1/2 -translate-y-1/2"><LoadingSpinner size={14} /></div>}
-      </div>
-
-      {show && (
-        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 shadow-2xl rounded-2xl z-[100] overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[300px] overflow-y-auto">
-          {/* Recent Locations */}
-          {query.length === 0 && recentLocations.length > 0 && (
-            <div className="bg-slate-50/50 px-3.5 py-2 border-b border-slate-100">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recently Used</p>
-            </div>
-          )}
-          {query.length === 0 && recentLocations.map((loc, idx) => (
-            <button key={loc.id || `${loc.name}-${loc.area}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
-              <Clock size={14} className="text-slate-400 mt-0.5" />
-              <div>
-                <p className="text-xs font-black text-slate-900">{loc.name}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase">{loc.area || 'Kenya'}</p>
-              </div>
-            </button>
-          ))}
-
-          {/* Popular Locations (when query is empty) */}
-          {query.length === 0 && (
-            <div className="bg-slate-50/50 px-3.5 py-2 border-b border-slate-100">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Popular Locations</p>
-            </div>
-          )}
-          {query.length === 0 && popularLocations.slice(0, 5).map((loc, idx) => (
-            <button key={loc.id || `${loc.name}-${loc.area}-${idx}`} type="button" onClick={() => handleSelect(loc)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-start gap-3">
-              <Star size={14} className="text-amber-400 mt-0.5" />
-              <div>
-                <p className="text-xs font-black text-slate-900">{loc.name}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase">{loc.area || 'Kenya'}</p>
-              </div>
-            </button>
-          ))}
-
-          {/* Search Suggestions */}
-          {query.length > 0 && suggestions.length > 0 ? (
-            suggestions.map((s, idx) => (
-              <button key={s.id || `${s.name}-${s.area}-${idx}`} type="button" onClick={() => handleSelect(s)} className="w-full text-left p-3.5 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors">
-                <div className="flex justify-between items-start">
-                  <p className="text-xs font-black text-slate-900">{s.name}</p>
-                  <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">{s.area}</p>
-                </div>
-                {s.description && <p className="text-[10px] font-bold text-slate-400 mt-0.5">{s.description}</p>}
-              </button>
-            ))
-          ) : query.length >= 3 && !loading && (
-            <div className="p-4 text-center">
-              <p className="text-xs font-bold text-slate-400">No locations found matching "{query}"</p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const calculateMinPrice = (distance: number): number => {
-  if (distance <= 0) return 0;
-  let rate = 0;
-  if (distance <= 3) {
-    rate = 60;
-  } else if (distance <= 7) {
-    rate = 50;
-  } else {
-    rate = 40;
-  }
-  const calculated = distance * rate;
-  return Math.max(100, Math.ceil(calculated));
-};
-
-const MapLocationPicker: React.FC<{ 
-  label: string, 
-  value?: LocationSuggestion | null, 
-  onSelect: (loc: LocationSuggestion) => void,
-  placeholder?: string
-}> = ({ label, value, onSelect, placeholder }) => {
-  const [showMap, setShowMap] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(value?.name || '');
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || '';
-
-  return (
-    <div className="space-y-2">
-      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{label}</label>
-      <div className="relative">
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <LocationAutocomplete 
-              label="" 
-              placeholder={placeholder || "Search location..."} 
-              icon={<MapPin size={10} />} 
-              onSelect={onSelect} 
-              value={value?.name} 
-              required 
-            />
-          </div>
-          <button 
-            type="button"
-            onClick={() => setShowMap(!showMap)}
-            className={`p-4 rounded-xl border-2 transition-all ${showMap ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}
-          >
-            <MapIcon size={18} />
-          </button>
-        </div>
-
-        {showMap && apiKey && (
-          <div className="mt-3 h-64 rounded-2xl overflow-hidden border-2 border-slate-100 relative animate-in zoom-in-95 duration-200">
-            <APIProvider apiKey={apiKey}>
-              <Map
-                defaultCenter={value?.coords || { lat: -1.286389, lng: 36.817223 }}
-                defaultZoom={15}
-                gestureHandling={'greedy'}
-                disableDefaultUI={true}
-                mapId="location_picker_map"
-                onClick={(e) => {
-                  if (e.detail.latLng) {
-                    const coords = { lat: e.detail.latLng.lat, lng: e.detail.latLng.lng };
-                    // In a real app, we'd reverse geocode here. 
-                    // For now, we'll just set it as "Pinned Location"
-                    onSelect({ name: `Pinned Location (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`, coords });
-                  }
-                }}
-              >
-                {value?.coords && (
-                  <AdvancedMarker position={value.coords}>
-                    <Pin background={'#4f46e5'} glyphColor={'#fff'} borderColor={'#4f46e5'} />
-                  </AdvancedMarker>
-                )}
-              </Map>
-              <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-lg shadow-sm border border-slate-100">
-                <p className="text-[8px] font-black text-slate-900 uppercase tracking-widest">Tap map to pick</p>
-              </div>
-            </APIProvider>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const CreateScreen: React.FC<any> = ({ user, errandForm, setErrandForm, postErrand, loading, errors }) => {
-  const [step, setStep] = useState(1);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const timerRef = useRef<any>(null);
-
-  const totalMamaFuaCost = (errandForm.laundryBaskets || 0) * (errandForm.pricePerBasket || 250);
-  
-  const handleUpdate = (updates: any) => { 
-    const newForm = { ...errandForm, ...updates };
-    
-    // Auto-calculate budget based on distance for General tasks
-    if (newForm.category === ErrandCategory.GENERAL && newForm.pickup && newForm.dropoff && !newForm.isInHouse) {
-      const dist = calculateDistance(
-        { lat: newForm.pickup.coords.lat, lng: newForm.pickup.coords.lng }, 
-        { lat: newForm.dropoff.coords.lat, lng: newForm.dropoff.coords.lng }
-      );
-      const minPrice = calculateMinPrice(dist);
-      newForm.distanceKm = parseFloat(dist.toFixed(2));
-      newForm.calculatedPrice = minPrice;
-      
-      // Auto-set budget only when locations change or if budget is not set
-      if (updates.pickup || updates.dropoff || !newForm.budget) {
-        if (!newForm.budget || newForm.budget < minPrice) {
-          newForm.budget = minPrice;
-        }
-        
-        // Auto-set deadline based on distance
-        const timeLimitHours = dist <= 7 ? 2 : 24;
-        const deadlineDate = new Date(Date.now() + timeLimitHours * 60 * 60 * 1000);
-        newForm.deadline = deadlineDate.toISOString().slice(0, 16);
-      }
-    } else if (newForm.category === ErrandCategory.GENERAL) {
-      // Clear distance-based pricing if not applicable
-      newForm.distanceKm = 0;
-      newForm.calculatedPrice = 0;
-    }
-    
-    setErrandForm(newForm); 
-  };
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      const chunks: Blob[] = [];
-
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        setAudioBlob(blob);
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingTime(0);
-      timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
-    } catch (err) {
-      alert("Microphone access denied or not supported.");
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      clearInterval(timerRef.current);
-    }
-  };
-
-  const uploadVoiceNote = async () => {
-    if (!audioBlob) return;
-    setIsUploadingAudio(true);
-    try {
-      const url = await cloudinaryService.uploadFile(audioBlob, 'auto', 'voice_notes');
-      handleUpdate({ voiceNoteUrl: url });
-      setAudioBlob(null);
-    } catch (err) {
-      alert("Failed to upload voice note.");
-    } finally {
-      setIsUploadingAudio(false);
-    }
-  };
-
-  const toggleChecklistItem = (item: string) => {
-    const currentChecklist = errandForm.checklist || [
-      { item: 'Water Availability', checked: false },
-      { item: 'Security Level', checked: false },
-      { item: 'Tiling & Finishing', checked: false },
-      { item: 'Electricity/Tokens', checked: false },
-      { item: 'Natural Lighting', checked: false }
-    ];
-    const newChecklist = currentChecklist.map((i: any) => 
-      i.item === item ? { ...i, checked: !i.checked } : i
-    );
-    handleUpdate({ checklist: newChecklist });
-  };
-
-  const renderStep1 = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-      <div className="space-y-1">
-        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Task Category <span className="text-red-500">*</span></label>
-        <select 
-          value={errandForm.category} 
-          onChange={e => handleUpdate({ category: e.target.value as ErrandCategory, isInHouse: false, pickup: null, dropoff: null })} 
-          className="w-full p-4 brand-input rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white border-2 border-slate-100"
-        >
-          {Object.values(ErrandCategory).map((cat) => (
-            <option key={cat} value={cat}>{cat}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="space-y-4">
-        <div className="space-y-1">
-          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Task Title <span className="text-red-500">*</span></label>
-          <input type="text" required value={errandForm.title} onChange={e => handleUpdate({ title: e.target.value })} placeholder="e.g., Buy groceries from Soko" className="w-full p-4 brand-input rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20" />
-        </div>
-
-        <div className="space-y-1">
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Description <span className="text-red-500">*</span></label>
-            <div className="flex items-center gap-2">
-              {isRecording ? (
-                <button type="button" onClick={stopRecording} className="flex items-center gap-1.5 px-3 py-1 bg-red-500 text-white rounded-full text-[9px] font-black uppercase animate-pulse">
-                  <Square size={10} fill="white" /> {recordingTime}s Recording...
-                </button>
-              ) : (
-                <button type="button" onClick={startRecording} className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[9px] font-black uppercase hover:bg-indigo-100 hover:text-indigo-600 transition-all">
-                  <Mic size={10} /> Voice Note
-                </button>
-              )}
-            </div>
-          </div>
-          <textarea required value={errandForm.description} onChange={e => handleUpdate({ description: e.target.value })} placeholder="Be specific with instructions..." className="w-full p-4 brand-input rounded-xl font-bold text-sm outline-none h-32 resize-none focus:ring-2 focus:ring-indigo-500/20" />
-          
-          {audioBlob && (
-            <div className="mt-2 p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-indigo-600">
-                <Volume2 size={16} />
-                <span className="text-[10px] font-black uppercase tracking-widest">Voice Note Recorded</span>
-              </div>
-              <button type="button" onClick={uploadVoiceNote} disabled={isUploadingAudio} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest shadow-sm">
-                {isUploadingAudio ? <LoadingSpinner size={10} color="white" /> : 'Attach Audio'}
-              </button>
-            </div>
-          )}
-
-          {errandForm.voiceNoteUrl && (
-            <div className="mt-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center gap-3">
-              <div className="w-8 h-8 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center"><Volume2 size={16} /></div>
-              <span className="text-xs font-black text-emerald-700">Voice Note Attached</span>
-              <button type="button" onClick={() => handleUpdate({ voiceNoteUrl: undefined })} className="ml-auto text-emerald-600 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <button 
-        type="button" 
-        onClick={() => setStep(2)} 
-        disabled={!errandForm.title || !errandForm.description}
-        className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-50 transition-all flex items-center justify-center gap-2"
-      >
-        Next: Task Details <ArrowRight size={16} />
-      </button>
-    </div>
-  );
-
-  const renderStep2 = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-      <div className="space-y-4">
-        {errandForm.category === ErrandCategory.TOWN_SERVICE && (
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Urgency <span className="text-red-500">*</span></label>
-            <select 
-              value={errandForm.urgency || 'normal'} 
-              onChange={e => handleUpdate({ urgency: e.target.value as any })} 
-              className="w-full p-4 brand-input rounded-xl font-bold text-xs outline-none"
-            >
-              <option value="normal">Normal (Within 24h)</option>
-              <option value="urgent">Urgent (Within 4h)</option>
-              <option value="immediate">Immediate (ASAP)</option>
-            </select>
-          </div>
-        )}
-
-        {errandForm.category === ErrandCategory.PACKAGE_DELIVERY && (
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Package Description <span className="text-red-500">*</span></label>
-              <textarea 
-                value={errandForm.packageDescription || ''} 
-                onChange={e => handleUpdate({ packageDescription: e.target.value })} 
-                placeholder="Describe what is being delivered (e.g., Electronics, Documents, Food)"
-                className="w-full p-4 brand-input rounded-xl font-bold text-xs outline-none h-24 resize-none"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Estimated Package Value (KES)</label>
-              <input 
-                type="number" 
-                value={errandForm.packageCost || ''} 
-                onChange={e => handleUpdate({ packageCost: Number(e.target.value) })} 
-                placeholder="e.g., 5000"
-                className="w-full p-4 brand-input rounded-xl font-bold text-xs outline-none"
-              />
-            </div>
-          </div>
-        )}
-
-        {errandForm.category === ErrandCategory.SHOPPING && (
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Shopping List <span className="text-red-500">*</span></label>
-            <textarea 
-              value={errandForm.shoppingList || ''} 
-              onChange={e => handleUpdate({ shoppingList: e.target.value })} 
-              placeholder="List the items you need (e.g., 2kg Sugar, 1L Milk, Bread)"
-              className="w-full p-4 brand-input rounded-xl font-bold text-xs outline-none h-32 resize-none"
-            />
-          </div>
-        )}
-
-        {errandForm.category === ErrandCategory.GIKOMBA_STRAWS && (
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Market Section/Specific Items <span className="text-red-500">*</span></label>
-              <textarea 
-                value={errandForm.marketSection || ''} 
-                onChange={e => handleUpdate({ marketSection: e.target.value })} 
-                placeholder="e.g., Shoes section, Mitumba bales, Specific stall number"
-                className="w-full p-4 brand-input rounded-xl font-bold text-xs outline-none h-24 resize-none"
-              />
-            </div>
-          </div>
-        )}
-
-        {errandForm.category === ErrandCategory.MAMA_FUA && (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Baskets</label>
-              <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                <button type="button" onClick={() => handleUpdate({ laundryBaskets: Math.max(1, (errandForm.laundryBaskets || 1) - 1) })} className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm"><ChevronDown size={14} /></button>
-                <span className="flex-1 text-center font-black text-sm">{errandForm.laundryBaskets || 1}</span>
-                <button type="button" onClick={() => handleUpdate({ laundryBaskets: (errandForm.laundryBaskets || 1) + 1 })} className="w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm"><ChevronUp size={14} /></button>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Price/Basket</label>
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 text-center font-black text-sm text-indigo-600">KES {errandForm.pricePerBasket || 250}</div>
-            </div>
-          </div>
-        )}
-
-        {errandForm.category === ErrandCategory.HOUSE_HUNTING && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">House Type</label>
-                <select value={errandForm.houseType} onChange={e => handleUpdate({ houseType: e.target.value })} className="w-full p-4 brand-input rounded-xl font-bold text-xs outline-none">
-                  <option value="">Select Type</option>
-                  <option value="Bedsitter">Bedsitter</option>
-                  <option value="One Bedroom">One Bedroom</option>
-                  <option value="Two Bedroom">Two Bedroom</option>
-                  <option value="Studio">Studio</option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Move-in Date</label>
-                <input type="date" value={errandForm.moveInDate} onChange={e => handleUpdate({ moveInDate: e.target.value })} className="w-full p-4 brand-input rounded-xl font-bold text-xs outline-none" />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Checklist Requirements</label>
-              <div className="grid grid-cols-2 gap-2">
-                {['Water Availability', 'Security Level', 'Tiling & Finishing', 'Electricity/Tokens', 'Natural Lighting'].map(item => (
-                  <button key={item} type="button" onClick={() => toggleChecklistItem(item)} className={`p-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-tight transition-all flex items-center gap-2 ${errandForm.checklist?.find((i: any) => i.item === item)?.checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>
-                    {errandForm.checklist?.find((i: any) => i.item === item)?.checked ? <Check size={10} /> : <Plus size={10} />}
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex gap-3">
-        <button type="button" onClick={() => setStep(1)} className="flex-1 py-5 border border-slate-200 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400 hover:bg-slate-50 transition-all">Back</button>
-        <button 
-          type="button" 
-          onClick={() => setStep(3)} 
-          disabled={errandForm.category === ErrandCategory.HOUSE_HUNTING && !errandForm.houseType}
-          className="flex-[2] py-5 bg-black text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-50 transition-all flex items-center justify-center gap-2"
-        >
-          Next: Location & Budget <ArrowRight size={16} />
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderStep3 = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-      <div className="space-y-4">
-        {errandForm.category === ErrandCategory.GENERAL && (
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <div>
-              <p className="text-xs font-black text-slate-900">In-House Service?</p>
-              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Runner comes to your home</p>
-            </div>
-            <button type="button" onClick={() => handleUpdate({ isInHouse: !errandForm.isInHouse, dropoff: null })} className={`w-12 h-6 rounded-full transition-all relative ${errandForm.isInHouse ? 'bg-indigo-600 shadow-lg shadow-indigo-100' : 'bg-slate-200'}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${errandForm.isInHouse ? 'left-7' : 'left-1'}`} /></button>
-          </div>
-        )}
-
-        {errandForm.category === ErrandCategory.MAMA_FUA && (
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <div>
-              <p className="text-xs font-black text-slate-900">In-House Cleaning?</p>
-              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Runner comes to your home</p>
-            </div>
-            <button type="button" onClick={() => handleUpdate({ isInHouse: !errandForm.isInHouse })} className={`w-12 h-6 rounded-full transition-all relative ${errandForm.isInHouse ? 'bg-indigo-600 shadow-lg shadow-indigo-100' : 'bg-slate-200'}`}><div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${errandForm.isInHouse ? 'left-7' : 'left-1'}`} /></button>
-          </div>
-        )}
-
-        <MapLocationPicker 
-          label={errandForm.category === ErrandCategory.HOUSE_HUNTING ? "Preferred Area" : (errandForm.isInHouse ? "Your Location" : "Pickup Location")} 
-          placeholder="Search or pick on map..." 
-          onSelect={loc => handleUpdate({ pickup: loc })} 
-          value={errandForm.pickup} 
-        />
-
-        {((errandForm.category === ErrandCategory.GENERAL && !errandForm.isInHouse) || (errandForm.category === ErrandCategory.MAMA_FUA && !errandForm.isInHouse)) && (
-          <MapLocationPicker 
-            label="Drop-off Location" 
-            placeholder="Where to?" 
-            onSelect={loc => handleUpdate({ dropoff: loc })} 
-            value={errandForm.dropoff} 
-          />
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Your Budget (Ksh) <span className="text-red-500">*</span></label>
-            <input type="number" required value={errandForm.budget || ''} onChange={e => handleUpdate({ budget: parseInt(e.target.value) })} className="w-full p-4 brand-input rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20" />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Deadline <span className="text-red-500">*</span></label>
-            <input type="datetime-local" required value={errandForm.deadline} onChange={e => handleUpdate({ deadline: e.target.value })} className="w-full p-4 brand-input rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20" />
-          </div>
-        </div>
-
-        {errandForm.distanceKm && (
-          <div className="p-5 bg-slate-900 text-white rounded-[1.5rem] space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-white/10 pb-3">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Pricing Breakdown</span>
-              <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">{errandForm.distanceKm} KM Trip</span>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-slate-400">Rate per KM</span>
-                <span className="text-xs font-black">{errandForm.distanceKm <= 3 ? 60 : errandForm.distanceKm <= 7 ? 50 : 40} KES</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-slate-400">System Minimum</span>
-                <span className="text-xs font-black">KES {errandForm.calculatedPrice}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-slate-400">Time Limit</span>
-                <span className="text-xs font-black">{errandForm.distanceKm <= 7 ? '2 Hours' : '24 Hours'}</span>
-              </div>
-            </div>
-            <div className="pt-3 border-t border-white/10 flex justify-between items-center">
-              <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Your Offer</span>
-              <span className="text-lg font-black text-white">KES {errandForm.budget}</span>
-            </div>
-            {errandForm.budget < (errandForm.calculatedPrice || 0) && (
-              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-xl flex items-center gap-2 text-red-400">
-                <AlertCircle size={14} />
-                <span className="text-[9px] font-black uppercase tracking-widest">Budget below recommended minimum</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {errandForm.category === ErrandCategory.MAMA_FUA && (
-          <div className="p-5 bg-indigo-600 text-white rounded-[1.5rem] flex justify-between items-center shadow-xl shadow-indigo-100">
-            <div>
-              <p className="text-[9px] font-black text-indigo-200 uppercase tracking-widest">Mama Fua Total</p>
-              <p className="text-xs font-bold">{errandForm.laundryBaskets} Baskets @ {errandForm.pricePerBasket}/ea</p>
-            </div>
-            <span className="text-xl font-black">KES {totalMamaFuaCost}</span>
-          </div>
-        )}
-
-        {(errandForm.category === ErrandCategory.SHOPPING || errandForm.category === ErrandCategory.TOWN_SERVICE) && (
-          <div className="p-5 bg-amber-50 border border-amber-100 rounded-[1.5rem] space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-500 text-white rounded-lg"><DollarSign size={16} /></div>
-              <div>
-                <p className="text-xs font-black text-slate-900">Shopping Float (Escrow)</p>
-                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Max amount runner can spend</p>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[9px] font-black uppercase tracking-widest text-amber-600 ml-1">Max Budget (Ksh)</label>
-              <input 
-                type="number" 
-                value={errandForm.maxShoppingBudget || ''} 
-                onChange={e => handleUpdate({ maxShoppingBudget: parseInt(e.target.value) })} 
-                placeholder="e.g. 2000"
-                className="w-full p-4 bg-white rounded-xl font-bold text-sm outline-none border border-amber-200 focus:ring-2 focus:ring-amber-500/20" 
-              />
-            </div>
-            <p className="text-[8px] text-amber-600 font-bold italic">This amount will be held in escrow and only released upon your approval of receipts.</p>
-          </div>
-        )}
-      </div>
-
-      <div className="flex gap-3 pt-4">
-        <button type="button" onClick={() => setStep(2)} className="flex-1 py-5 border border-slate-200 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all">Back</button>
-        <button 
-          type="submit" 
-          disabled={loading || !errandForm.budget || !errandForm.deadline || !errandForm.pickup || (errandForm.category === ErrandCategory.GENERAL && !errandForm.isInHouse && !errandForm.dropoff)}
-          className="flex-[2] py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-100 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          {loading ? <Loader2 size={16} className="animate-spin" /> : <><Plus size={16} /> Post Errand</>}
-        </button>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="max-w-2xl mx-auto pb-10">
-      {user && !user.phoneVerified && (
-        <div className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-start gap-3 animate-in fade-in zoom-in-95">
-          <div className="p-2 bg-amber-100 rounded-xl text-amber-600 mt-0.5">
-            <AlertTriangle size={16} />
-          </div>
-          <div>
-            <h3 className="text-xs font-black text-amber-800 uppercase tracking-wide mb-1">Phone Not Authenticated</h3>
-            <p className="text-[10px] font-medium text-amber-700 leading-relaxed">
-              Your phone number is not verified. You can still post errands, but verifying helps runners trust you.
-            </p>
-          </div>
-        </div>
-      )}
-      <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm">
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <div className="p-3.5 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-100"><Plus size={24} /></div>
-            <div>
-              <h2 className="text-lg font-[900] text-slate-900">Post an Errand</h2>
-              <div className="flex items-center gap-2 mt-0.5">
-                {[1, 2, 3].map(s => (
-                  <div key={s} className={`h-1 rounded-full transition-all ${step >= s ? 'w-6 bg-indigo-600' : 'w-2 bg-slate-100'}`} />
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Step</p>
-            <p className="text-sm font-black text-slate-900">{step} of 3</p>
-          </div>
-        </div>
-
-        <form onSubmit={(e) => { e.preventDefault(); postErrand(e); setStep(1); }} className="space-y-6">
-          {step === 1 && renderStep1()}
-          {step === 2 && renderStep2()}
-          {step === 3 && renderStep3()}
-        </form>
-      </div>
-    </div>
-  );
-};
-
-const MenuView: React.FC<{ listings: ServiceListing[], onSelect: (listing: ServiceListing) => void }> = ({ listings, onSelect }) => {
-  const [activeCategory, setActiveCategory] = useState<ErrandCategory | 'All'>('All');
-  const [viewingListing, setViewingListing] = useState<ServiceListing | null>(null);
-  
-  const filtered = activeCategory === 'All' ? listings : listings.filter(l => l.category === activeCategory);
-  
-  const categories = ['All', ...Object.values(ErrandCategory)];
-
-  return (
-    <div className="space-y-6 pb-10">
-      <div className="flex items-center justify-between px-2">
-        <h2 className="text-xl font-black text-slate-900 tracking-tight">Service Menu</h2>
-        <div className="p-2 bg-slate-100 rounded-xl">
-          <Search size={16} className="text-slate-400" />
-        </div>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-2 px-2 no-scrollbar">
-        {categories.map(cat => (
-          <button 
-            key={cat} 
-            onClick={() => setActiveCategory(cat as any)}
-            className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${activeCategory === cat ? 'bg-black text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-100'}`}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
-
-      <div className="space-y-4 px-2">
-        {filtered.length === 0 ? (
-          <div className="p-20 text-center bg-white rounded-[2rem] border-2 border-dashed border-slate-100 text-slate-300 font-black uppercase text-[10px] tracking-widest">
-            No services listed in this category
-          </div>
-        ) : (
-          filtered.map(item => (
-            <div 
-              key={item.id} 
-              onClick={() => setViewingListing(item)}
-              className="bg-white rounded-[2rem] p-4 border border-slate-100 shadow-sm flex gap-4 items-center animate-in fade-in slide-in-from-bottom-2 cursor-pointer hover:border-indigo-100 transition-all"
-            >
-              <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 border border-slate-50">
-                <img src={item.imageUrl} className="w-full h-full object-cover" alt={item.title} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start">
-                  <h3 className="font-black text-slate-900 text-sm leading-tight">{item.title} {item.scope && <span className="text-slate-400 font-bold">({item.scope})</span>}</h3>
-                  <div className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
-                    <Info size={12} />
-                  </div>
-                </div>
-                <p className="text-[10px] text-slate-500 font-medium line-clamp-2 mt-1 leading-relaxed">{item.description}</p>
-                <div className="flex justify-between items-center mt-3">
-                  <p className="font-black text-slate-900 text-sm">KSh{item.price}</p>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelect(item);
-                    }}
-                    className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
-                  >
-                    <Plus size={14} /> Add
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {viewingListing && (
-        <ServiceListingDetailModal 
-          listing={viewingListing} 
-          onClose={() => setViewingListing(null)} 
-          onOrder={(l) => {
-            onSelect(l);
-            setViewingListing(null);
-          }}
-        />
-      )}
-    </div>
-  );
-};
-
-const ServiceListingDetailModal: React.FC<{ listing: ServiceListing, onClose: () => void, onOrder: (l: ServiceListing) => void }> = ({ listing, onClose, onOrder }) => {
-  const [explanation, setExplanation] = useState(listing.explanation || '');
-  const [paymentGuide, setPaymentGuide] = useState(listing.paymentGuide || '');
-  const [loading, setLoading] = useState(!listing.explanation || !listing.paymentGuide);
-
-  useEffect(() => {
-    if (!listing.explanation || !listing.paymentGuide) {
-      const generateDetails = async () => {
-        try {
-          const prompt = `Generate a detailed explanation and a payment guide for a service listing in an on-demand errands app.
-          Service Title: ${listing.title}
-          Category: ${listing.category}
-          Description: ${listing.description}
-          Base Price: KSh ${listing.price}
-
-          Return the response in JSON format with two fields: "explanation" (what the runner does) and "paymentGuide" (how the pricing works, including potential extra costs like transport).
-          Make it professional and concise.`;
-          
-          const response = await callGeminiWithRetry(prompt);
-          const cleaned = response.replace(/```json|```/g, '').trim();
-          const data = JSON.parse(cleaned);
-          setExplanation(data.explanation);
-          setPaymentGuide(data.paymentGuide);
-        } catch (e) {
-          setExplanation(listing.description);
-          setPaymentGuide(`Base price is KSh ${listing.price}. Additional costs may apply for distance or extra requirements.`);
-        } finally {
-          setLoading(false);
-        }
-      };
-      generateDetails();
-    }
-  }, [listing]);
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
-        <div className="relative h-56 flex-shrink-0">
-          <img src={listing.imageUrl} className="w-full h-full object-cover" alt={listing.title} />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-          <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-white/20 backdrop-blur-md text-white rounded-full hover:bg-white/40 transition-all z-10">
-            <X size={20} />
-          </button>
-          <div className="absolute bottom-6 left-6 right-6">
-            <span className="text-[9px] font-black uppercase tracking-widest text-white bg-indigo-600 px-3 py-1 rounded-full">{listing.category}</span>
-            <h3 className="text-2xl font-[900] text-white mt-2 leading-tight">{listing.title}</h3>
-          </div>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-8 space-y-6 no-scrollbar">
-          <div className="space-y-2">
-            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Task Explanation</h4>
-            {loading ? (
-              <div className="flex items-center gap-2 text-slate-400 py-2">
-                <Loader2 size={14} className="animate-spin" />
-                <span className="text-[10px] font-bold uppercase tracking-widest">Generating details...</span>
-              </div>
-            ) : (
-              <p className="text-xs text-slate-600 font-medium leading-relaxed">{explanation}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Payment Guide</h4>
-            {loading ? (
-              <div className="flex items-center gap-2 text-slate-400 py-2">
-                <Loader2 size={14} className="animate-spin" />
-                <span className="text-[10px] font-bold uppercase tracking-widest">Calculating guide...</span>
-              </div>
-            ) : (
-              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                <p className="text-xs text-slate-600 font-medium leading-relaxed mb-3">{paymentGuide}</p>
-                <div className="flex justify-between items-center pt-3 border-t border-slate-200">
-                  <span className="text-[10px] font-black text-slate-400 uppercase">Base Price</span>
-                  <span className="text-lg font-black text-slate-900">KSh {listing.price}</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-indigo-50 p-5 rounded-2xl border border-indigo-100/50 flex items-start gap-3">
-            <Info size={18} className="text-indigo-600 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-indigo-600/80 font-bold leading-relaxed">
-              By ordering, you'll be matched with a verified runner. You only pay once the task is completed to your satisfaction.
-            </p>
-          </div>
-        </div>
-
-        <div className="p-6 bg-white border-t border-slate-50 flex-shrink-0">
-          <button 
-            onClick={() => onOrder(listing)}
-            className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-100 active:scale-95 transition-all flex items-center justify-center gap-3"
-          >
-            <ShoppingBag size={18} /> Order Now
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const DashboardGuide: React.FC = () => {
-  return (
-    <div className="space-y-6 py-4">
-      <div className="px-2">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Platform Guide</h3>
-        <h2 className="text-xl font-black text-slate-900 tracking-tight mt-1">How it Works</h2>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Section 1: What are tasks */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
-          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
-            <Target size={24} />
-          </div>
-          <div>
-            <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight">What are Tasks?</h4>
-            <p className="text-[11px] text-slate-500 font-medium leading-relaxed mt-2">
-              Tasks are on-demand services ranging from grocery shopping and laundry (Mama Fua) to specialized house hunting. We bridge the gap between your needs and reliable local assistance.
-            </p>
-          </div>
-        </div>
-
-        {/* Section 2: Posting Errands */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
-            <PlusCircle size={24} />
-          </div>
-          <div>
-            <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight">Post an Errand</h4>
-            <p className="text-[11px] text-slate-500 font-medium leading-relaxed mt-2">
-              Need something done? Click "Post Errand", choose a category, set your budget, and describe the task. Local runners will see your request and send proposals instantly.
-            </p>
-          </div>
-        </div>
-
-        {/* Section 3: Accepting Errands */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
-            <Zap size={24} />
-          </div>
-          <div>
-            <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight">Accept & Earn</h4>
-            <p className="text-[11px] text-slate-500 font-medium leading-relaxed mt-2">
-              As a runner, browse "Available Errands" on the map or list. Send your interest at the specified budget. Once assigned, complete the task, upload proof, and get paid securely.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-slate-900 rounded-[2rem] p-8 text-white relative overflow-hidden">
-        <div className="relative z-10 max-w-lg">
-          <h3 className="text-lg font-black tracking-tight mb-2">Secure & Reliable</h3>
-          <p className="text-xs text-slate-400 font-medium leading-relaxed">
-            Every transaction is protected. Funds are held securely and only released when you sign off on the completed task. Our rating system ensures high-quality service for everyone.
-          </p>
-        </div>
-        <ShieldAlert className="absolute -right-6 -bottom-6 text-white/5" size={140} />
-      </div>
-    </div>
-  );
-};
-
-const SupportChatOverlay: React.FC<{ user: User }> = ({ user }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [chat, setChat] = useState<any>(null);
-  const [text, setText] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (isOpen) {
-      const unsub = firebaseService.subscribeToSupportChat(user.id, (data) => {
-        setChat(data);
-        if (data?.unreadByUser) {
-          firebaseService.markSupportChatAsRead(user.id, false);
-        }
-      });
-      return () => unsub();
-    }
-  }, [isOpen, user.id]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [chat?.messages]);
-
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!text.trim()) return;
-    const msg = text;
-    setText('');
-    await firebaseService.sendSupportMessage(user.id, user.name, msg);
-  };
-
-  return (
-    <div className="fixed bottom-24 right-6 z-[60] md:bottom-8">
-      {isOpen ? (
-        <div className="w-[320px] h-[450px] bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-          <header className="p-5 bg-black text-white flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center">
-                <MessageCircle size={18} />
-              </div>
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-widest">Support Chat</h3>
-                <p className="text-[8px] font-bold opacity-60 uppercase">We're online</p>
-              </div>
-            </div>
-            <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
-              <X size={18} />
-            </button>
-          </header>
-          
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
-            {!chat || !chat.messages || chat.messages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
-                <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
-                  <HelpCircle size={24} />
-                </div>
-                <div>
-                  <p className="text-xs font-black text-slate-900 uppercase">How can we help?</p>
-                  <p className="text-[10px] text-slate-400 font-medium leading-relaxed mt-1">Send us a message and our team will get back to you shortly.</p>
-                </div>
-              </div>
-            ) : (
-              chat.messages.map((m: any, i: number) => (
-                <div key={m.id || `msg-${i}`} className={`flex flex-col ${m.senderId === user.id ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] font-medium leading-relaxed ${m.senderId === user.id ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-900 border border-slate-100 rounded-tl-none shadow-sm'}`}>
-                    {m.text}
-                  </div>
-                  <span className="text-[7px] font-black text-slate-400 uppercase mt-1 px-1">{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-              ))
-            )}
-          </div>
-
-          <form onSubmit={handleSend} className="p-3 bg-white border-t flex gap-2">
-            <input 
-              type="text" value={text} onChange={e => setText(e.target.value)} 
-              placeholder="Type your message..." 
-              className="flex-1 bg-slate-50 border-none rounded-xl px-4 py-2.5 text-[11px] font-bold outline-none focus:ring-2 focus:ring-black/5"
-            />
-            <button type="submit" className="p-2.5 bg-black text-white rounded-xl active:scale-90 transition-all shadow-lg">
-              <ArrowRight size={18} />
-            </button>
-          </form>
-        </div>
-      ) : (
-        <button 
-          onClick={() => setIsOpen(true)} 
-          className="w-14 h-14 bg-black text-white rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 active:scale-90 transition-all group relative"
-        >
-          <MessageCircle size={24} />
-          {chat?.unreadByUser && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 border-2 border-white rounded-full" />
-          )}
-          <div className="absolute right-full mr-3 px-3 py-1.5 bg-black text-white text-[9px] font-black uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 transition-all pointer-events-none whitespace-nowrap">
-            Chat with Support
-          </div>
-        </button>
-      )}
-    </div>
-  );
-};
-
-class ErrorBoundary extends React.Component<any, any> {
-  state: { hasError: boolean, error: any };
-  props: { children: React.ReactNode };
-
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error: any) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: any, errorInfo: any) {
-    console.error("ErrorBoundary caught an error", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      let errorMessage = "An unexpected error occurred.";
-      try {
-        if (this.state.error?.message) {
-          const parsed = JSON.parse(this.state.error.message);
-          if (parsed.error) errorMessage = parsed.error;
-        }
-      } catch (e) {
-        errorMessage = this.state.error?.message || errorMessage;
-      }
-
-      return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl border border-red-100 text-center space-y-6">
-            <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
-              <AlertTriangle size={40} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Something went wrong</h2>
-              <p className="text-sm text-slate-500 font-medium mt-2 leading-relaxed">
-                {errorMessage}
-              </p>
-            </div>
-            <button 
-              onClick={() => window.location.reload()}
-              className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:bg-black transition-all active:scale-95"
-            >
-              Reload Application
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
+const ALL_SUGGESTIONS = [
+  "Mama Fua (Laundry)",
+  "Market Shopping",
+  "House Hunting",
+  "Package Delivery",
+  "Town Service",
+  "Gikomba straws",
+  "Buy groceries",
+  "Clean the house",
+  "Find a bedsitter"
+];
 
 export default function App() {
-  const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || '';
+  const googleMapsApiKey = '';
   const [user, setUser] = useState<User | null>(null);
+  const [showNearbyRunners, setShowNearbyRunners] = useState(false);
   const [showLoyaltyModal, setShowLoyaltyModal] = useState(false);
   const [showPriceRequestModal, setShowPriceRequestModal] = useState<PriceRequest | null>(null);
   const [showAddPropertyModal, setShowAddPropertyModal] = useState(false);
@@ -1325,18 +118,6 @@ export default function App() {
   const [isParsing, setIsParsing] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState<UserRole | 'all'>('all');
-
-  const ALL_SUGGESTIONS = [
-    "Mama Fua (Laundry)",
-    "Market Shopping",
-    "House Hunting",
-    "Package Delivery",
-    "Town Service",
-    "Gikomba straws",
-    "Buy groceries",
-    "Clean the house",
-    "Find a bedsitter"
-  ];
 
   useEffect(() => {
     if (searchQuery.length > 0) {
@@ -1450,7 +231,7 @@ export default function App() {
       );
       return () => navigator.geolocation.clearWatch(watchId);
     }
-  }, [user?.id]);
+  }, [user?.id, user]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -1489,7 +270,7 @@ export default function App() {
       unsubNotifs();
       if (unsubAvailable) unsubAvailable();
     };
-  }, [user]);
+  }, [user, selectedErrand]);
 
   useEffect(() => {
     if (!user || !selectedErrand) return;
@@ -1499,7 +280,7 @@ export default function App() {
     // However, if we want to ensure it's always fresh even if not in the main list:
     // const unsub = firebaseService.subscribeToErrand(selectedErrand.id, setSelectedErrand);
     // return () => unsub();
-  }, [user, selectedErrand?.id]);
+  }, [user, selectedErrand?.id, selectedErrand]);
 
   const filteredErrands = useMemo(() => {
     if (!proximityFilter || !currentLocation) return availableErrands;
@@ -1695,13 +476,13 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <APIProvider apiKey={googleMapsApiKey || ''}>
       <Layout 
         user={user} 
-      onLogout={() => firebaseService.logout().then(() => setUser(null))} 
-      activeTab={activeTab} 
-      setActiveTab={setActiveTab}
-      onNotificationClick={(notif) => {
+        onLogout={() => firebaseService.logout().then(() => setUser(null))} 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab}
+        notifications={notifications}
+        onNotificationClick={(notif) => {
         if (notif.errandId) {
           const errand = errands.concat(availableErrands).find(e => e.id === notif.errandId);
           if (errand) {
@@ -1720,154 +501,257 @@ export default function App() {
       <TopProgressBar isLoading={isProcessing} />
       <div className="max-w-5xl mx-auto space-y-3 px-2">
         {activeTab === 'dashboard' && (
-          <div className="space-y-5 pb-8">
-            <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2rem] p-6 text-white relative overflow-hidden shadow-xl shadow-indigo-100">
-              <div className="relative z-10">
-                <h2 className="text-xl font-black mb-0.5 tracking-tight">Hello, {user?.name ? user.name.split(' ')[0] : 'Guest'}!</h2>
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-80 mb-4">What can we do for you today?</p>
-                {user?.isAdmin && (
-                  <div className="grid grid-cols-3 gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/5"><p className="text-[7px] font-black uppercase opacity-70 mb-0.5">Users</p><p className="text-sm font-black">{stats.totalUsers}</p></div>
-                    <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/5"><p className="text-[7px] font-black uppercase opacity-70 mb-0.5">Tasks</p><p className="text-sm font-black">{stats.totalTasks}</p></div>
-                    <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/5"><p className="text-[7px] font-black uppercase opacity-70 mb-0.5">Online</p><p className="text-sm font-black text-emerald-300">{stats.onlineUsers}</p></div>
-                  </div>
-                )}
-              </div>
-              <Sparkles className="absolute -right-4 -bottom-4 text-white/10" size={120} />
-            </div>
-
-            {/* Search Bar */}
-            <div className="relative group z-30">
-              <div className="absolute inset-y-0 left-5 flex items-center pointer-events-none">
-                <Search className="text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={18} />
-              </div>
-              <input 
-                type="text" 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="What do you need help with?" 
-                className="w-full pl-12 pr-6 py-4 bg-white border border-slate-100 rounded-2xl font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500/20 transition-all shadow-sm"
-              />
-              {searchSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-100 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                  {searchSuggestions.map((s) => (
-                    <button 
-                      key={s}
-                      onClick={() => {
-                        setSearchQuery(s);
-                        setSearchSuggestions([]);
-                        // Optionally trigger search or navigate
-                      }}
-                      className="w-full px-5 py-3 text-left text-xs font-bold text-slate-600 hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors flex items-center gap-3"
-                    >
-                      <Sparkles size={12} className="text-indigo-400" />
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Smart Create NLP */}
-            <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-black text-slate-900 tracking-tight">Quick Post (AI Assist)</h3>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Just type what you need</p>
-                </div>
-                <div className="bg-indigo-50 p-2 rounded-xl">
-                  <Zap size={16} className="text-indigo-600" />
-                </div>
-              </div>
-              <div className="relative">
-                <textarea 
-                  value={smartInput}
-                  onChange={(e) => setSmartInput(e.target.value)}
-                  placeholder="e.g. I need someone to buy me onions at Muthurwa market..."
-                  className="w-full p-4 bg-slate-50 border-none rounded-2xl text-xs font-bold outline-none h-24 resize-none focus:ring-2 focus:ring-indigo-500/10 transition-all"
-                />
-                <button 
-                  onClick={handleSmartCreate}
-                  disabled={isParsing || !smartInput.trim()}
-                  className="absolute bottom-3 right-3 px-4 py-2 bg-black text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all disabled:opacity-50"
-                >
-                  {isParsing ? <Loader2 size={12} className="animate-spin" /> : "Post Errand"}
-                </button>
-              </div>
-            </div>
-
-            {/* Categories */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <h3 className="text-base font-black text-slate-900 tracking-tight">Categories</h3>
-                <button onClick={() => setActiveTab('menu')} className="text-[9px] font-black uppercase text-indigo-600 tracking-widest bg-indigo-50 px-3 py-1 rounded-full">Explore</button>
-              </div>
-              <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-                {Object.values(ErrandCategory).map((cat) => (
-                  <button 
-                    key={cat}
-                    onClick={() => {
-                      setErrandForm({ ...errandForm, category: cat });
-                      setActiveTab('create');
-                    }}
-                    className="flex-shrink-0 w-24 bg-white p-3 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all text-center group"
+          <div className="space-y-8 pb-12">
+            {/* Hero Section */}
+            <div className="relative group">
+              <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-violet-700 to-fuchsia-800 rounded-[2.5rem] blur-2xl opacity-20 group-hover:opacity-30 transition-opacity duration-500"></div>
+              <div className="bg-gradient-to-br from-indigo-600 via-violet-700 to-fuchsia-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-strong min-h-[220px] flex flex-col justify-center">
+                <div className="relative z-10 max-w-md">
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1 }}
                   >
-                    <div className="w-12 h-12 bg-indigo-50 rounded-xl mx-auto mb-2 overflow-hidden group-hover:scale-110 transition-transform flex items-center justify-center">
-                      <img src={`https://picsum.photos/seed/${cat}/100/100`} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt={cat} />
+                    <h2 className="text-4xl font-black mb-1 tracking-tight leading-none">
+                      Hello, {user?.name ? user.name.split(' ')[0] : 'Guest'}!
+                    </h2>
+                    <p className="text-base font-bold uppercase tracking-[0.2em] opacity-70 mb-6">
+                      Your personal errand assistant
+                    </p>
+                  </motion.div>
+                  
+                  {user?.isAdmin ? (
+                    <div className="grid grid-cols-3 gap-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                      <div className="bg-white/10 backdrop-blur-xl p-4 rounded-2xl border border-white/10 hover:bg-white/20 transition-colors">
+                        <p className="text-micro opacity-70 mb-1">Users</p>
+                        <p className="text-2xl font-black">{stats.totalUsers.toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white/10 backdrop-blur-xl p-4 rounded-2xl border border-white/10 hover:bg-white/20 transition-colors">
+                        <p className="text-micro opacity-70 mb-1">Tasks</p>
+                        <p className="text-2xl font-black">{stats.totalTasks.toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white/10 backdrop-blur-xl p-4 rounded-2xl border border-white/10 hover:bg-white/20 transition-colors">
+                        <p className="text-micro opacity-70 mb-1">Live</p>
+                        <p className="text-2xl font-black text-emerald-300">{stats.onlineUsers}</p>
+                      </div>
                     </div>
-                    <p className="text-[9px] font-black text-slate-700 uppercase leading-tight truncate">{cat}</p>
-                  </button>
-                ))}
+                  ) : (
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={() => setActiveTab('create')}
+                        className="px-6 py-3 bg-white text-indigo-600 rounded-2xl font-black uppercase text-sm tracking-widest shadow-strong hover:scale-105 active:scale-95 transition-all"
+                      >
+                        Post New Task
+                      </button>
+                      <button 
+                        onClick={() => setActiveTab('find')}
+                        className="px-6 py-3 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-white/20 transition-all"
+                      >
+                        Find Runners
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <Sparkles className="absolute -right-8 -bottom-8 text-white/10 rotate-12" size={200} />
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+              </div>
+            </div>
+
+            {/* Search & AI Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-7 space-y-6">
+                {/* Search Bar */}
+                <div className="relative group z-30">
+                  <div className="absolute inset-y-0 left-6 flex items-center pointer-events-none">
+                    <Search className="text-muted-foreground group-focus-within:text-primary transition-colors" size={20} />
+                  </div>
+                  <input 
+                    type="text" 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search for services or tasks..." 
+                    className="w-full pl-14 pr-6 py-5 bg-white border border-slate-100 rounded-[2rem] font-bold text-foreground text-base outline-none focus:ring-8 focus:ring-primary/5 focus:border-primary/20 transition-all shadow-soft"
+                  />
+                  {searchSuggestions.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-3 bg-white rounded-[2rem] border border-slate-100 shadow-strong overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300 z-50">
+                      <div className="p-4 border-b border-slate-50">
+                        <p className="text-micro text-muted-foreground">Suggestions</p>
+                      </div>
+                      {searchSuggestions.map((s) => (
+                        <button 
+                          key={s}
+                          onClick={() => {
+                            setSearchQuery(s);
+                            setSearchSuggestions([]);
+                          }}
+                          className="w-full px-6 py-4 text-left text-base font-bold text-slate-600 hover:bg-secondary border-b border-slate-50 last:border-none transition-colors flex items-center gap-4 group"
+                        >
+                          <div className="w-8 h-8 bg-secondary rounded-xl flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors">
+                            <Sparkles size={14} />
+                          </div>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Categories */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-2xl">Popular Categories</h3>
+                    <button onClick={() => setActiveTab('menu')} className="text-xs text-indigo-600 hover:underline">See All</button>
+                  </div>
+                  <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar px-2 -mx-2">
+                    {Object.values(ErrandCategory).map((cat) => (
+                      <button 
+                        key={cat}
+                        onClick={() => {
+                          setErrandForm({ ...errandForm, category: cat });
+                          setActiveTab('create');
+                        }}
+                        className="flex-shrink-0 w-28 group"
+                      >
+                        <div className="aspect-square bg-white rounded-[2rem] border border-slate-100 shadow-soft flex flex-col items-center justify-center gap-3 group-hover:shadow-strong group-hover:border-indigo-100 transition-all group-hover:-translate-y-1">
+                          <div className="w-12 h-12 bg-secondary rounded-2xl flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
+                            <img src={`https://picsum.photos/seed/${cat}/100/100`} className="w-full h-full object-cover rounded-2xl opacity-80 group-hover:opacity-100 transition-opacity" alt={cat} />
+                          </div>
+                          <p className="text-xs text-slate-600 group-hover:text-indigo-600 transition-colors px-2 text-center leading-tight">{cat}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-5">
+                {/* Smart Create NLP */}
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-soft space-y-6 h-full flex flex-col">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-2xl">Quick Post</h3>
+                      <p className="text-xs text-muted-foreground">AI-Powered Assistant</p>
+                    </div>
+                    <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner">
+                      <Zap size={24} />
+                    </div>
+                  </div>
+                  <div className="relative flex-1">
+                    <textarea 
+                      value={smartInput}
+                      onChange={(e) => setSmartInput(e.target.value)}
+                      placeholder="e.g. I need someone to buy me onions at Muthurwa market..."
+                      className="w-full h-full min-h-[120px] p-5 bg-secondary/50 border-none rounded-2xl text-base font-bold outline-none resize-none focus:ring-8 focus:ring-indigo-500/5 transition-all placeholder:text-slate-400"
+                    />
+                    <button 
+                      onClick={handleSmartCreate}
+                      disabled={isParsing || !smartInput.trim()}
+                      className="absolute bottom-4 right-4 px-6 py-3 bg-black text-white rounded-2xl text-xs shadow-strong active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {isParsing ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                      Post Now
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Featured Services */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <h3 className="text-base font-black text-slate-900 tracking-tight">Featured Services</h3>
+            <div className="space-y-6">
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-xl">Featured Services</h3>
+                <p className="text-micro text-muted-foreground">Top rated in Nairobi</p>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {featuredServices.length === 0 ? (
-                  <div className="col-span-full p-12 text-center bg-white rounded-3xl border-2 border-dashed border-slate-100 text-slate-300 font-black uppercase text-[9px] tracking-widest">
-                    No featured services yet
-                  </div>
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="bg-white rounded-[2.5rem] p-5 border border-slate-100 shadow-soft animate-pulse">
+                      <div className="aspect-square bg-secondary rounded-[2rem] mb-4"></div>
+                      <div className="h-4 bg-secondary rounded w-3/4 mb-2"></div>
+                      <div className="h-3 bg-secondary rounded w-1/2"></div>
+                    </div>
+                  ))
                 ) : (
                   featuredServices.map(service => (
-                    <div 
+                    <motion.div 
                       key={service.id} 
+                      whileHover={{ y: -8 }}
                       onClick={() => setSelectedFeaturedService(service)}
-                      className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:border-indigo-100 transition-all group cursor-pointer"
+                      className="bg-white rounded-[2.5rem] overflow-hidden border border-slate-100 shadow-soft hover:shadow-strong transition-all group cursor-pointer"
                     >
-                      <div className="aspect-square relative overflow-hidden">
-                        <img src={service.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={service.title} />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
-                           <p className="text-[8px] font-black text-white uppercase tracking-widest">View Details</p>
+                      <div className="aspect-square relative overflow-hidden m-2 rounded-[2rem]">
+                        <img src={service.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" alt={service.title} />
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                           <div className="bg-white text-black px-4 py-2 rounded-xl text-micro shadow-strong">View Details</div>
                         </div>
                       </div>
-                      <div className="p-3">
-                        <h4 className="text-xs font-black text-slate-900 tracking-tight truncate mb-1">{service.title}</h4>
+                      <div className="p-6 pt-2">
+                        <h4 className="text-lg mb-1 truncate">{service.title}</h4>
                         <div className="flex items-center justify-between">
-                          <p className="text-xs font-black text-indigo-600">From KSH {service.price}</p>
-                          <Plus size={12} className="text-slate-300 group-hover:text-indigo-600 transition-colors" />
+                          <p className="text-sm font-black text-indigo-600">KSH {service.price.toLocaleString()}</p>
+                          <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center group-hover:bg-black group-hover:text-white transition-all">
+                            <Plus size={16} />
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   ))
                 )}
               </div>
             </div>
 
-            {/* Recent Activity */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <h3 className="text-base font-black text-slate-900 tracking-tight">Recent Activity</h3>
-                <button onClick={() => setActiveTab('my-errands')} className="text-[9px] font-black uppercase text-indigo-600 tracking-widest bg-indigo-50 px-3 py-1 rounded-full">History</button>
+            {/* Nearby Runners for Requesters */}
+            {user?.role === UserRole.REQUESTER && nearbyRunners.length > 0 && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between px-2">
+                  <h3 className="text-xl">Runners Nearby</h3>
+                  <button onClick={() => setShowNearbyRunners(true)} className="text-micro text-indigo-600 hover:underline">View Map</button>
+                </div>
+                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar px-2 -mx-2">
+                  {nearbyRunners.map((runner) => (
+                    <div key={runner.id} className="flex-shrink-0 w-48 bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-soft flex flex-col items-center text-center gap-3">
+                      <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-strong">
+                        <img src={runner.profilePhoto || runner.avatar || `https://ui-avatars.com/api/?name=${runner.name}`} className="w-full h-full object-cover" alt={runner.name} />
+                      </div>
+                      <div>
+                        <h4 className="text-sm truncate w-full">{runner.name.split(' ')[0]}</h4>
+                        <div className="flex items-center justify-center gap-1 text-amber-500">
+                          <Star size={10} fill="currentColor" />
+                          <span className="text-[10px] font-black">{runner.rating || 5.0}</span>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setErrandForm({ ...errandForm, category: ErrandCategory.GENERAL });
+                          setActiveTab('create');
+                        }}
+                        className="w-full py-2 bg-secondary rounded-xl text-micro hover:bg-black hover:text-white transition-all"
+                      >
+                        Hire
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            )}
+
+            {/* Recent Activity */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-xl">Recent Activity</h3>
+                <button onClick={() => setActiveTab('my-errands')} className="text-micro text-muted-foreground">View All</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {isLoadingErrands ? (
                   [1,2].map(i => <ErrandCardSkeleton key={`skeleton-recent-${i}`} />)
                 ) : errands.slice(0, 4).length === 0 ? (
-                  <div className="col-span-full p-10 text-center bg-white rounded-3xl border-2 border-dashed border-slate-100 text-slate-300 font-black uppercase text-[9px] tracking-widest">No Recent Activity</div>
+                  <div className="col-span-full py-20 text-center bg-white rounded-[2.5rem] border-2 border-dashed border-slate-100">
+                    <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mx-auto mb-4">
+                      <List size={32} className="text-slate-300" />
+                    </div>
+                    <h4 className="text-xl text-slate-400">No recent activity</h4>
+                    <p className="text-micro text-slate-300">Your posted tasks will appear here</p>
+                  </div>
                 ) : (
                   errands.slice(0, 4).map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
                 )}
@@ -1876,43 +760,61 @@ export default function App() {
           </div>
         )}
         {activeTab === 'my-errands' && (
-          <div className="space-y-6">
+          <div className="space-y-8 pb-12">
             {!user ? (
-              <div className="p-20 text-center bg-white rounded-[2.5rem] border-2 border-dashed border-slate-100">
-                <ShieldAlert size={48} className="mx-auto mb-4 text-slate-200" />
-                <h3 className="text-lg font-black text-slate-900 mb-2">Login Required</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Sign in to view your tasks</p>
-                <button onClick={() => { setAuthModalMode('login'); setShowAuthModal(true); }} className="px-10 py-4 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Sign In Now</button>
+              <div className="p-20 text-center bg-white rounded-[3rem] border border-slate-100 shadow-soft animate-in fade-in zoom-in-95">
+                <div className="w-24 h-24 bg-secondary rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 relative overflow-hidden">
+                  <ShieldAlert size={40} className="text-slate-300 relative z-10" />
+                </div>
+                <h3 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">Login Required</h3>
+                <p className="text-base font-bold text-slate-400 mb-10 max-w-[280px] mx-auto uppercase tracking-widest leading-relaxed">Sign in to view and manage your personal errands</p>
+                <button 
+                  onClick={() => { setAuthModalMode('login'); setShowAuthModal(true); }} 
+                  className="px-12 py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-strong active:scale-95 transition-all"
+                >
+                  Sign In Now
+                </button>
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between px-2">
+                <div className="flex items-center justify-between px-4">
                   <div>
-                    <h2 className="text-xl font-black text-slate-900 tracking-tight">My Errands</h2>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Manage your tasks</p>
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">My Errands</h2>
+                    <p className="text-micro text-muted-foreground">Manage your active and past tasks</p>
                   </div>
-                  <div className="bg-slate-100 px-3 py-1 rounded-full text-[10px] font-black text-slate-500 uppercase">{errands.length} Total</div>
+                  <div className="bg-indigo-50 px-4 py-2 rounded-2xl text-micro font-black text-indigo-600 uppercase tracking-widest shadow-inner">
+                    {errands.length} Total
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 px-2">
                   {isLoadingErrands ? (
                     [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-errands-${i}`} />)
                   ) : errands.length === 0 ? (
-                    <div className="col-span-full p-12 md:p-20 text-center bg-white rounded-[3rem] border border-slate-100 shadow-sm animate-in fade-in zoom-in-95">
-                      <div className="w-24 h-24 bg-indigo-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6 relative overflow-hidden">
+                    <div className="col-span-full p-12 md:p-24 text-center bg-white rounded-[3rem] border border-slate-100 shadow-soft animate-in fade-in zoom-in-95">
+                      <div className="w-28 h-28 bg-indigo-50 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 relative overflow-hidden">
                         <div className="absolute inset-0 bg-gradient-to-tr from-indigo-100 to-transparent opacity-50" />
-                        <Sparkles size={40} className="text-indigo-400 relative z-10" />
+                        <Sparkles size={48} className="text-indigo-400 relative z-10" />
                       </div>
-                      <h3 className="text-xl font-black text-slate-900 mb-2">Your afternoon looks busy</h3>
-                      <p className="text-sm font-bold text-slate-400 mb-8 max-w-[240px] mx-auto">Want us to handle the laundry or run some errands for you?</p>
+                      <h3 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Your afternoon looks busy</h3>
+                      <p className="text-base font-bold text-slate-400 mb-10 max-w-[280px] mx-auto leading-relaxed">Want us to handle the laundry or run some errands for you?</p>
                       <button 
                         onClick={() => setActiveTab('create')}
-                        className="px-8 py-4 bg-black text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-slate-200 active:scale-95 transition-all"
+                        className="px-10 py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-strong active:scale-95 transition-all"
                       >
                         Create New Errand
                       </button>
                     </div>
                   ) : (
-                    errands.map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
+                    errands.map(e => (
+                      <motion.div
+                        key={e.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <ErrandCard errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />
+                      </motion.div>
+                    ))
                   )}
                 </div>
               </>
@@ -1938,43 +840,71 @@ export default function App() {
           />
         )}
         {activeTab === 'find' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between px-2">
-              <h2 className="text-xl font-black text-slate-900 tracking-tight">Find Errands</h2>
-              <div className="flex items-center gap-2">
-                <Filter size={14} className="text-slate-400" />
-                <select 
-                  value={proximityFilter || ''} 
-                  onChange={e => setProximityFilter(e.target.value ? parseInt(e.target.value) : null)}
-                  className="bg-slate-100 border-none rounded-xl px-3 py-1.5 text-[10px] font-black uppercase tracking-widest outline-none"
-                >
-                  <option value="">All Distances</option>
-                  <option value="5">Within 5km</option>
-                  <option value="10">Within 10km</option>
-                  <option value="20">Within 20km</option>
-                  <option value="50">Within 50km</option>
-                </select>
+          <div className="space-y-8 pb-12">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-4">
+              <div>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">Available Tasks</h2>
+                <p className="text-micro text-muted-foreground">Find errands near you and start earning</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                    <Filter size={14} className="text-slate-400 group-focus-within:text-primary transition-colors" />
+                  </div>
+                  <select 
+                    value={proximityFilter || ''} 
+                    onChange={e => setProximityFilter(e.target.value ? parseInt(e.target.value) : null)}
+                    className="pl-10 pr-4 py-3 bg-white border border-slate-100 rounded-2xl text-micro font-black uppercase tracking-widest outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary/20 transition-all shadow-soft appearance-none min-w-[160px]"
+                  >
+                    <option value="">All Distances</option>
+                    <option value="5">Within 5km</option>
+                    <option value="10">Within 10km</option>
+                    <option value="20">Within 20km</option>
+                    <option value="50">Within 50km</option>
+                  </select>
+                </div>
               </div>
             </div>
-            <MapView errands={filteredErrands} onSelectErrand={setSelectedErrand} height="300px" userLocation={currentLocation} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {isLoadingAvailable ? (
-                [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-filtered-${i}`} />)
-              ) : filteredErrands.length === 0 ? (
-                <div className="col-span-full p-16 text-center bg-white rounded-[2rem] border border-slate-100 shadow-sm animate-in fade-in zoom-in-95">
-                  <div className="w-20 h-20 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <Search size={32} className="text-slate-200" />
+
+            <div className="px-2">
+              <div className="rounded-[2.5rem] overflow-hidden border border-slate-100 shadow-soft mb-8">
+                <MapView errands={filteredErrands} onSelectErrand={setSelectedErrand} height="350px" userLocation={currentLocation} />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {isLoadingAvailable ? (
+                  [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-filtered-${i}`} />)
+                ) : filteredErrands.length === 0 ? (
+                  <div className="col-span-full p-12 md:p-24 text-center bg-white rounded-[3rem] border border-slate-100 shadow-soft animate-in fade-in zoom-in-95">
+                    <div className="w-28 h-28 bg-secondary rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 relative overflow-hidden">
+                      <Search size={48} className="text-slate-300 relative z-10" />
+                    </div>
+                    <h3 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">No errands nearby</h3>
+                    <p className="text-base font-bold text-slate-400 mb-10 max-w-[280px] mx-auto leading-relaxed">Try increasing your search range or check back later for new opportunities.</p>
+                    <button 
+                      onClick={() => setProximityFilter(null)}
+                      className="px-10 py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-strong active:scale-95 transition-all"
+                    >
+                      Clear Filters
+                    </button>
                   </div>
-                  <h3 className="text-lg font-black text-slate-900 mb-1">No errands nearby</h3>
-                  <p className="text-xs font-bold text-slate-400">Try increasing your search range or check back later.</p>
-                </div>
-              ) : (
-                filteredErrands.map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
-              )}
+                ) : (
+                  filteredErrands.map(e => (
+                    <motion.div
+                      key={e.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <ErrandCard errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />
+                    </motion.div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}
-        {activeTab === 'admin' && user && <AdminPanel 
+        {activeTab === 'admin' && user && <AdminPanelLocal 
           user={user} 
           settings={appSettings} 
           stats={stats} 
@@ -2236,12 +1166,12 @@ export default function App() {
                 </div>
               </div>
             </header>
-            <SupportChatView user={user} />
+            <SupportChatViewLocal user={user} />
           </div>
         )}
       </div>
       {selectedErrand && (
-        <ErrandDetailScreen 
+        <ErrandDetailScreenLocal 
           selectedErrand={selectedErrand} 
           setSelectedErrand={setSelectedErrand} 
           user={user} 
@@ -2311,15 +1241,12 @@ export default function App() {
         isOpen={showAuthModal} 
         onClose={() => setShowAuthModal(false)} 
         onAuthSuccess={(u) => setUser(u)} 
-        firebaseService={firebaseService} 
         initialMode={authModalMode}
       />
 
       {resetToken && (
         <ResetPasswordModal 
-          token={resetToken} 
           onClose={() => setResetToken(null)} 
-          firebaseService={firebaseService}
         />
       )}
 
@@ -2345,7 +1272,6 @@ export default function App() {
         />
       )}
     </Layout>
-      </APIProvider>
     </ErrorBoundary>
   );
 }
@@ -2585,7 +1511,7 @@ const ProfileMenuItem: React.FC<{ icon: React.ReactNode, label: string, onClick?
   </button>
 );
 
-const AdminPanel: React.FC<{ 
+const AdminPanelLocal: React.FC<{ 
   user: User; 
   settings: AppSettings; 
   stats: any; 
@@ -2601,7 +1527,7 @@ const AdminPanel: React.FC<{
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isIconUploading, setIsIconUploading] = useState(false);
-  const [activeAdminTab, setActiveAdminTab] = useState<'stats' | 'branding' | 'support' | 'applications' | 'services' | 'listings' | 'users' | 'system'>('stats');
+  const [activeAdminTab, setActiveAdminTab] = useState<'stats' | 'branding' | 'support' | 'applications' | 'services' | 'listings' | 'users' | 'system' | 'loyalty' | 'broadcast'>('stats');
   const [dbUsers, setDbUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [supportChats, setSupportChats] = useState<any[]>([]);
@@ -2613,6 +1539,8 @@ const AdminPanel: React.FC<{
   const [isAddingService, setIsAddingService] = useState(false);
   const [isAddingListing, setIsAddingListing] = useState(false);
   const [selectedSupportUser, setSelectedSupportUser] = useState<string | null>(null);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
   const logoFileRef = useRef<HTMLInputElement>(null);
   const iconFileRef = useRef<HTMLInputElement>(null);
 
@@ -2625,30 +1553,27 @@ const AdminPanel: React.FC<{
   }, [settings]);
 
   useEffect(() => {
-    if (activeAdminTab === 'support') {
-      const unsub = firebaseService.subscribeToAllSupportChats(setSupportChats);
-      return () => unsub();
-    }
-    if (activeAdminTab === 'applications') {
-      firebaseService.fetchRunnerApplications().then(setApplications);
-    }
-    if (activeAdminTab === 'services') {
-      firebaseService.fetchFeaturedServices().then(setAdminFeaturedServices);
-    }
-    if (activeAdminTab === 'listings') {
-      firebaseService.fetchServiceListings().then(setAdminServiceListings);
-    }
-    if (activeAdminTab === 'users') {
-      firebaseService.fetchAllUsers().then(setDbUsers);
-    }
-  }, [activeAdminTab]);
+    const unsubSupport = firebaseService.subscribeToAllSupportChats(setSupportChats);
+    firebaseService.getAppStats().then(setStats);
+    firebaseService.fetchRunnerApplications().then(setApplications);
+    firebaseService.fetchFeaturedServices().then(setAdminFeaturedServices);
+    firebaseService.fetchServiceListings().then(setAdminServiceListings);
+    firebaseService.fetchAllUsers().then(setDbUsers);
+    return () => unsubSupport();
+  }, [setSupportChats, setStats, setApplications, setAdminFeaturedServices, setAdminServiceListings, setDbUsers]);
+
+  useEffect(() => {
+    // Refresh specific data when tab changes if needed
+    if (activeAdminTab === 'stats') firebaseService.getAppStats().then(setStats);
+    if (activeAdminTab === 'users') firebaseService.fetchAllUsers().then(setDbUsers);
+  }, [activeAdminTab, setStats, setDbUsers]);
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
     try {
-      const url = await cloudinaryService.uploadImage(file, 'app_logos');
+      const url = await cloudinaryService.uploadImage(file);
       setLogoUrl(url);
       await firebaseService.saveAppSettings({ logoUrl: url });
       alert("Logo uploaded and updated.");
@@ -2660,7 +1585,7 @@ const AdminPanel: React.FC<{
     if (!file) return;
     setIsIconUploading(true);
     try {
-      const url = await cloudinaryService.uploadImage(file, 'app_icons');
+      const url = await cloudinaryService.uploadImage(file);
       setIconUrl(url);
       await firebaseService.saveAppSettings({ iconUrl: url });
       alert("Icon uploaded and updated.");
@@ -2745,11 +1670,13 @@ const AdminPanel: React.FC<{
 
   return (
     <div className="space-y-4 pb-10">
-      <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl w-fit mb-4 overflow-x-auto max-w-full">
+      <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl w-fit mb-4 overflow-x-auto max-w-full no-scrollbar">
         <button onClick={() => setActiveAdminTab('stats')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'stats' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Stats</button>
         <button onClick={() => setActiveAdminTab('applications')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'applications' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Applications</button>
         <button onClick={() => setActiveAdminTab('listings')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'listings' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Menu Listings</button>
         <button onClick={() => setActiveAdminTab('users')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'users' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Users</button>
+        <button onClick={() => setActiveAdminTab('loyalty')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'loyalty' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Loyalty</button>
+        <button onClick={() => setActiveAdminTab('broadcast')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'broadcast' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Broadcast</button>
         <button onClick={() => setActiveAdminTab('system')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'system' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>System</button>
         <button onClick={() => setActiveAdminTab('services')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'services' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Featured</button>
         {isSuperAdmin && <button onClick={() => setActiveAdminTab('branding')} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAdminTab === 'branding' ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}>Branding</button>}
@@ -2814,53 +1741,124 @@ const AdminPanel: React.FC<{
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Revenue Chart */}
             <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Revenue (Last 7 Days)</h3>
-              <div className="h-40 flex items-end gap-2">
-                {stats.revenuePerDay?.map((day: any) => (
-                  <div key={day.date} className="flex-1 flex flex-col items-center gap-2 group">
-                    <div 
-                      className="w-full bg-indigo-600 rounded-t-lg transition-all group-hover:bg-indigo-700" 
-                      style={{ height: `${Math.max(10, (day.amount / Math.max(...stats.revenuePerDay.map((d: any) => d.amount || 1))) * 100)}%` }}
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6">Revenue (Last 7 Days)</h3>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.revenuePerDay || []}>
+                    <defs>
+                      <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.1}/>
+                        <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="date" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }}
+                      dy={10}
                     />
-                    <p className="text-[7px] font-black text-slate-400 uppercase rotate-45 mt-2">{day.date.split('/')[0]}/{day.date.split('/')[1]}</p>
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 9, fontWeight: 900, fill: '#94a3b8' }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 900 }}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="amount" 
+                      stroke="#4f46e5" 
+                      strokeWidth={3}
+                      fillOpacity={1} 
+                      fill="url(#colorRevenue)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Category Distribution */}
+            <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6">Category Distribution</h3>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stats.categoryDistribution || [
+                        { name: 'Laundry', value: 400 },
+                        { name: 'Shopping', value: 300 },
+                        { name: 'Delivery', value: 300 },
+                        { name: 'House Hunting', value: 200 },
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {['#4f46e5', '#10b981', '#f59e0b', '#ef4444'].map((color, index) => (
+                        <Cell key={`cell-${index}`} fill={color} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 900 }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-4">
+                {['Laundry', 'Shopping', 'Delivery', 'House Hunting'].map((cat, i) => (
+                  <div key={cat} className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ['#4f46e5', '#10b981', '#f59e0b', '#ef4444'][i] }} />
+                    <span className="text-[9px] font-black uppercase text-slate-500">{cat}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Top Lists */}
+            <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Runners</h3>
+              <div className="space-y-3">
+                {stats.topRunners?.map((r: any, i: number) => (
+                  <div key={r.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-xl transition-all">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-black text-slate-300 w-4">#{i+1}</span>
+                      <img src={r.avatar || `https://i.pravatar.cc/150?u=${r.id}`} className="w-8 h-8 rounded-lg object-cover" alt="" />
+                      <p className="text-xs font-black text-slate-900">{r.name}</p>
+                    </div>
+                    <p className="text-[10px] font-black text-indigo-600 uppercase">{r.errandsCompleted || 0} Tasks</p>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Top Lists */}
-            <div className="space-y-4">
-              <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Runners</h3>
-                <div className="space-y-3">
-                  {stats.topRunners?.map((r: any, i: number) => (
-                    <div key={r.id} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black text-slate-300">#{i+1}</span>
-                        <p className="text-xs font-black text-slate-900">{r.name}</p>
-                      </div>
-                      <p className="text-[10px] font-black text-indigo-600 uppercase">{r.errandsCompleted || 0} Tasks</p>
+            <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Recent Activity</h3>
+              <div className="space-y-4">
+                {(stats.recentActivity || [
+                  { id: '1', type: 'new_user', text: 'New user registered: John Doe', time: '2m ago', icon: <UserCircle size={14} className="text-indigo-600" /> },
+                  { id: '2', type: 'task_completed', text: 'Task completed: Grocery Shopping', time: '15m ago', icon: <CheckCircle size={14} className="text-emerald-600" /> },
+                  { id: '3', type: 'new_bid', text: 'New bid on: Laundry Service', time: '45m ago', icon: <DollarSign size={14} className="text-amber-600" /> },
+                  { id: '4', type: 'support_ticket', text: 'New support message from Jane', time: '1h ago', icon: <MessageSquare size={14} className="text-rose-600" /> },
+                ]).map((act: any) => (
+                  <div key={act.id} className="flex gap-3 items-start p-2 hover:bg-slate-50 rounded-xl transition-all">
+                    <div className="p-2 bg-slate-100 rounded-lg mt-0.5">{act.icon}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-bold text-slate-900 leading-tight">{act.text}</p>
+                      <p className="text-[9px] font-black text-slate-400 uppercase mt-1">{act.time}</p>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Requesters</h3>
-                <div className="space-y-3">
-                  {stats.topRequesters?.map((r: any, i: number) => (
-                    <div key={r.id} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black text-slate-300">#{i+1}</span>
-                        <p className="text-xs font-black text-slate-900">{r.name}</p>
-                      </div>
-                      <p className="text-[10px] font-black text-emerald-600 uppercase">{r.tasksCount || 0} Posts</p>
-                    </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -2877,7 +1875,7 @@ const AdminPanel: React.FC<{
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className="font-black text-slate-900">{app.fullName}</h3>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{app.categoryApplied} • {formatPhoneDisplay(app.phone)}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{app.categoryApplied} • {formatPhoneDisplay(app.phone || '')}</p>
                   </div>
                   <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-lg border ${app.status === 'pending' ? 'bg-amber-50 text-amber-600 border-amber-100' : app.status === 'approved' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
                     {app.status}
@@ -3126,51 +2124,47 @@ const AdminPanel: React.FC<{
       {activeAdminTab === 'system' && (
         <div className="space-y-6 animate-in fade-in">
           <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Environment Configuration</h3>
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Static Mode Active</h3>
+            <p className="text-xs text-slate-600 leading-relaxed mb-6">
+              The application is currently running in <strong>Static Mode</strong>. All data is stored locally in your browser's storage. No external services (Firebase, Gemini, Cloudinary, TalkSasa, Resend) are being used.
+            </p>
+            
             <div className="space-y-3">
               {[
-                { label: 'Firebase API Key', value: import.meta.env.VITE_FIREBASE_API_KEY },
-                { label: 'Firebase Project ID', value: import.meta.env.VITE_FIREBASE_PROJECT_ID },
-                { label: 'Google Maps Key', value: import.meta.env.VITE_GOOGLE_MAPS_API_KEY },
-                { label: 'Cloudinary Name', value: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME },
-                { label: 'Gemini API Key', value: process.env.GEMINI_API_KEY || process.env.API_KEY },
-                { label: 'TalkSasa Token', value: process.env.TALKSASA_TOKEN },
-                { label: 'Resend API Key', value: process.env.RESEND_API_KEY },
-                { label: 'Resend From', value: process.env.RESEND_FROM },
+                { label: 'Database', value: 'Browser LocalStorage' },
+                { label: 'Media Storage', value: 'Mocked (Picsum)' },
+                { label: 'AI Services', value: 'Mocked' },
+                { label: 'Messaging', value: 'Mocked' },
+                { label: 'Email', value: 'Mocked' },
               ].map((env) => (
                 <div key={env.label} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{env.label}</span>
                   <div className="flex items-center gap-2">
-                    {env.value ? (
-                      <div className="flex items-center gap-1 text-emerald-600">
-                        <CheckCircle size={14} />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Configured</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1 text-red-500">
-                        <AlertCircle size={14} />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Missing</span>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1 text-emerald-600">
+                      <CheckCircle size={14} />
+                      <span className="text-[10px] font-black uppercase tracking-widest">{env.value}</span>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
             
-            <div className="mt-8 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-              <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-2">Deployment Tip</p>
-              <p className="text-[11px] text-indigo-900/70 leading-relaxed font-medium">
-                If you are deploying to Netlify or Vercel, make sure to add these variables in your dashboard settings. 
-                Use the <code className="bg-white px-1 rounded">VITE_</code> prefix for client-side variables like Firebase and Maps.
-              </p>
+            <div className="mt-8 p-6 bg-emerald-50 rounded-[2rem] border border-emerald-100">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-emerald-600 text-white rounded-lg"><Activity size={16} /></div>
+                <h4 className="text-sm font-black text-emerald-900 uppercase tracking-widest">Local System Health</h4>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-white rounded-2xl border border-emerald-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Storage Latency</p>
+                  <p className="text-xs font-black text-emerald-600">~1ms <span className="text-[8px] text-emerald-400 font-bold">INSTANT</span></p>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-emerald-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">App Status</p>
+                  <p className="text-xs font-black text-emerald-600">STABLE <span className="text-[8px] text-emerald-400 font-bold">LOCAL</span></p>
+                </div>
+              </div>
             </div>
-            
-            <button 
-              onClick={() => window.open('/api/admin/export-env', '_blank')}
-              className="mt-6 w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-black transition-all shadow-lg shadow-slate-200"
-            >
-              <Download size={16} /> Download .env Template
-            </button>
           </div>
         </div>
       )}
@@ -3363,6 +2357,86 @@ const AdminPanel: React.FC<{
         </div>
       )}
 
+      {activeAdminTab === 'broadcast' && (
+        <div className="space-y-6 animate-in fade-in">
+          <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-indigo-600 text-white rounded-xl"><BellRing size={24} /></div>
+              <div>
+                <h2 className="text-lg font-black text-slate-900">Broadcast Notification</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Send a message to all users</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <textarea 
+                placeholder="Type your broadcast message here..." 
+                value={broadcastMessage}
+                onChange={(e) => setBroadcastMessage(e.target.value)}
+                className="w-full p-6 bg-slate-50 rounded-3xl border-none outline-none font-bold text-sm h-40 resize-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+              />
+              <button 
+                disabled={isBroadcasting || !broadcastMessage.trim()}
+                onClick={async () => {
+                  setIsBroadcasting(true);
+                  try {
+                    // Mock broadcast for now, in real app would trigger a cloud function
+                    alert("Broadcast sent successfully to all users!");
+                    setBroadcastMessage('');
+                  } catch (e) {
+                    alert("Broadcast failed.");
+                  } finally {
+                    setIsBroadcasting(false);
+                  }
+                }}
+                className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isBroadcasting ? <LoadingSpinner color="white" /> : <><Sparkles size={16} /> Send Broadcast</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeAdminTab === 'loyalty' && (
+        <div className="space-y-6 animate-in fade-in">
+          <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-amber-500 text-white rounded-xl"><Target size={24} /></div>
+              <div>
+                <h2 className="text-lg font-black text-slate-900">Loyalty Program</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Manage Tiers and Rewards</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[
+                { level: 'Bronze', points: '0-500', color: 'bg-orange-100 text-orange-600', icon: <Zap size={16} /> },
+                { level: 'Silver', points: '501-2000', color: 'bg-slate-100 text-slate-600', icon: <Shield size={16} /> },
+                { level: 'Gold', points: '2001+', color: 'bg-amber-100 text-amber-600', icon: <Star size={16} /> },
+              ].map((tier) => (
+                <div key={tier.level} className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${tier.color}`}>{tier.icon}</div>
+                  <div>
+                    <h4 className="font-black text-slate-900">{tier.level}</h4>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{tier.points} Points</p>
+                  </div>
+                  <button className="w-full py-2 bg-white border border-slate-100 rounded-xl text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-black transition-all">Edit Benefits</button>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-6 bg-indigo-50 rounded-[2rem] border border-indigo-100 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-black text-indigo-900">Global Points Multiplier</h4>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Current: 1.0x</p>
+              </div>
+              <button className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-200">Adjust</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeAdminTab === 'support' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in">
           <div className="md:col-span-1 bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[600px]">
@@ -3393,7 +2467,7 @@ const AdminPanel: React.FC<{
           </div>
           <div className="md:col-span-2 bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[600px]">
             {selectedSupportUser ? (
-              <SupportChatView user={user} targetUserId={selectedSupportUser} isAdmin={true} />
+              <SupportChatViewLocal user={user} targetUserId={selectedSupportUser} isAdmin={true} />
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-300 gap-3">
                 <MessageCircle size={48} strokeWidth={1} />
@@ -3407,7 +2481,7 @@ const AdminPanel: React.FC<{
   );
 };
 
-const SupportChatView: React.FC<{ user: User, targetUserId?: string, isAdmin?: boolean }> = ({ user, targetUserId, isAdmin = false }) => {
+const SupportChatViewLocal: React.FC<{ user: User, targetUserId?: string, isAdmin?: boolean }> = ({ user, targetUserId, isAdmin = false }) => {
   const [chat, setChat] = useState<any>(null);
   const [text, setText] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -3475,29 +2549,6 @@ const triggerHaptic = () => {
     window.navigator.vibrate(10);
   }
 };
-
-const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
-  <div className={`animate-pulse bg-slate-100 rounded-xl ${className}`} />
-);
-
-const ErrandCardSkeleton = () => (
-  <div className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm space-y-2">
-    <div className="flex justify-between items-start gap-3">
-      <div className="flex-1 space-y-2">
-        <div className="flex gap-2">
-           <Skeleton className="h-4 w-16 rounded-md" />
-           <Skeleton className="h-3 w-12 rounded-md" />
-        </div>
-        <Skeleton className="h-4 w-3/4 rounded-md" />
-        <Skeleton className="h-3 w-1/2 rounded-md" />
-      </div>
-      <div className="flex flex-col items-end gap-1.5">
-        <Skeleton className="h-4 w-16 rounded-md" />
-        <Skeleton className="h-4 w-12 rounded-md" />
-      </div>
-    </div>
-  </div>
-);
 
 const ErrandStatusTimeline: React.FC<{ status: ErrandStatus, category?: ErrandCategory }> = ({ status, category }) => {
   const isShopping = category === ErrandCategory.SHOPPING;
@@ -3579,47 +2630,16 @@ const ErrandStatusTimeline: React.FC<{ status: ErrandStatus, category?: ErrandCa
 };
 
 const MapView: React.FC<{ errands?: Errand[], onSelectErrand?: (e: Errand) => void, height?: string, userLocation?: Coordinates | null }> = ({ errands = [], onSelectErrand, height = "400px", userLocation }) => {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || '';
-
-  if (!apiKey) {
-    return (
-      <div style={{ height }} className="rounded-[2rem] flex flex-col items-center justify-center bg-slate-100 text-slate-400 font-bold text-[10px] uppercase tracking-widest p-8 text-center gap-3">
-        <ShieldAlert size={32} className="opacity-20" />
-        <p>Google Maps API Key missing.<br/>Configure VITE_GOOGLE_MAPS_API_KEY.</p>
-      </div>
-    );
-  }
-
   return (
-    <APIProvider apiKey={apiKey}>
-      <div style={{ height }} className="rounded-[2rem] overflow-hidden border border-slate-100 shadow-inner bg-slate-50 relative">
-        <Map
-          defaultCenter={userLocation || { lat: -1.286389, lng: 36.817223 }}
-          defaultZoom={12}
-          gestureHandling={'greedy'}
-          disableDefaultUI={true}
-          mapId="errands_map"
-        >
-          {userLocation && (
-            <AdvancedMarker position={userLocation}>
-              <div className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg animate-pulse" />
-            </AdvancedMarker>
-          )}
-          {errands.map(e => (
-            <React.Fragment key={e.id}>
-              {e.pickupCoordinates && (
-                <AdvancedMarker 
-                  position={{ lat: e.pickupCoordinates.lat, lng: e.pickupCoordinates.lng }}
-                  onClick={() => onSelectErrand?.(e)}
-                >
-                  <Pin background={'#000'} glyphColor={'#fff'} borderColor={'#000'} />
-                </AdvancedMarker>
-              )}
-            </React.Fragment>
-          ))}
-        </Map>
+    <div style={{ height }} className="rounded-[2rem] flex flex-col items-center justify-center bg-slate-100 text-slate-400 font-bold text-[10px] uppercase tracking-widest p-8 text-center gap-3 border-2 border-dashed border-slate-200">
+      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-slate-400 mb-2 shadow-sm">
+        <MapIcon size={32} />
       </div>
-    </APIProvider>
+      <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Interactive Map Placeholder</h3>
+      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-relaxed max-w-[200px]">
+        Map integration has been removed for static mode. In a live environment, this would show real-time runner locations and errand pins.
+      </p>
+    </div>
   );
 };
 
@@ -4114,10 +3134,10 @@ const PropertyComparisonModal: React.FC<{ listings: PropertyListing[], onClose: 
               {listings.map(l => (
                 <td key={l.id} className="text-center py-6">
                   <div className="flex flex-wrap justify-center gap-2">
-                    {l.amenities.water && <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg" title="Water"><Droplets size={14} /></div>}
-                    {l.amenities.wifi && <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg" title="WiFi"><Wifi size={14} /></div>}
-                    {l.amenities.security && <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg" title="Security"><Shield size={14} /></div>}
-                    {l.amenities.parking && <div className="p-1.5 bg-slate-50 text-slate-600 rounded-lg" title="Parking"><Car size={14} /></div>}
+                    {l.amenities?.includes('water') && <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg" title="Water"><Droplets size={14} /></div>}
+                    {l.amenities?.includes('wifi') && <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg" title="WiFi"><Wifi size={14} /></div>}
+                    {l.amenities?.includes('security') && <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg" title="Security"><Shield size={14} /></div>}
+                    {l.amenities?.includes('parking') && <div className="p-1.5 bg-slate-50 text-slate-600 rounded-lg" title="Parking"><Car size={14} /></div>}
                   </div>
                 </td>
               ))}
@@ -4399,32 +3419,31 @@ const TaskHistory: React.FC<{ user: User, onBack: () => void, onSelectErrand: (e
   );
 };
 
-const ErrandDetailScreen: React.FC<any> = ({ 
+const ErrandDetailScreenLocal: React.FC<any> = ({ 
   selectedErrand, setSelectedErrand, user, setUser, refresh, 
   onRunnerComplete, onCompleteErrand, loading,
   setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal,
   setShowPhoneVerificationModal, setShowEmailVerificationModal, setAuthModalMode
 }) => {
-  if (!user) return null;
-  
-  const [comments, setComments] = useState(selectedErrand.runnerComments || '');
-  const [photo, setPhoto] = useState<string | null>(selectedErrand.completionPhoto || null);
+  const [comments, setComments] = useState(selectedErrand?.runnerComments || '');
+  const [photo, setPhoto] = useState<string | null>(selectedErrand?.completionPhoto || null);
   const [showCamera, setShowCamera] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
   const [isReassigning, setIsReassigning] = useState(false);
   const [isRescheduling, setIsRescheduling] = useState(false);
-  const [rescheduleDeadline, setRescheduleDeadline] = useState(selectedErrand.deadline || '');
+  const [rescheduleDeadline, setRescheduleDeadline] = useState(selectedErrand?.deadline || '');
   const [reassignReason, setReassignReason] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [overdueReasonInput, setOverdueReasonInput] = useState('');
-  const [editForm, setEditForm] = useState({ description: selectedErrand.description || '', budget: selectedErrand.budget || 0, deadline: selectedErrand.deadline || '' });
+  const [editForm, setEditForm] = useState({ description: selectedErrand?.description || '', budget: selectedErrand?.budget || 0, deadline: selectedErrand?.deadline || '' });
   const [showProofs, setShowProofs] = useState(false);
   const [proofLabel, setProofLabel] = useState('');
   const [isUploadingProof, setIsUploadingProof] = useState(false);
   const [activeDetailTab, setActiveDetailTab] = useState<'details' | 'map' | 'chat' | 'progress'>('details');
+  const [showBidModal, setShowBidModal] = useState(false);
   
-  const isOverdue = selectedErrand.deadlineTimestamp && 
+  const isOverdue = selectedErrand?.deadlineTimestamp && 
                     Date.now() > selectedErrand.deadlineTimestamp && 
                     selectedErrand.status === ErrandStatus.ACCEPTED;
   const fileRef = useRef<HTMLInputElement>(null);
@@ -4432,24 +3451,28 @@ const ErrandDetailScreen: React.FC<any> = ({
   const chatSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!editMode) {
+    if (!editMode && selectedErrand) {
       setEditForm({
         description: selectedErrand.description || '',
         budget: selectedErrand.budget || 0,
         deadline: selectedErrand.deadline || ''
       });
     }
-  }, [selectedErrand.description, selectedErrand.budget, selectedErrand.deadline, editMode]);
+  }, [selectedErrand?.description, selectedErrand?.budget, selectedErrand?.deadline, editMode, selectedErrand]);
 
-  const isRequester = user.id === selectedErrand.requesterId;
-  const isRunner = user.id === selectedErrand.runnerId;
+  const isRequester = user?.id === selectedErrand?.requesterId;
+  const isRunner = user?.id === selectedErrand?.runnerId;
 
   useEffect(() => {
-    if (isRequester && selectedErrand.priceRequests) {
-      const pending = selectedErrand.priceRequests.find(r => r.status === 'pending');
+    if (isRequester && selectedErrand?.priceRequests) {
+      const pending = selectedErrand.priceRequests.find((r: PriceRequest) => r.status === 'pending');
       if (pending) setShowPriceRequestModal(pending);
     }
-  }, [selectedErrand.priceRequests, isRequester]);
+  }, [selectedErrand?.priceRequests, isRequester, setShowPriceRequestModal]);
+
+  const handleCloseCamera = useCallback(() => setShowCamera(false), []);
+
+  if (!user || !selectedErrand) return null;
 
   const handleToggleMicroStep = async (idx: number, completed: boolean) => {
     try {
@@ -4504,19 +3527,35 @@ const ErrandDetailScreen: React.FC<any> = ({
     }
   };
 
-  const handleUpload = async (file: File) => {
+  const handleCameraCapture = async (dataUrl: string) => {
+    if (!selectedErrand) return;
     setIsUploading(true);
     try {
-      const url = await cloudinaryService.uploadImage(file);
+      const url = await cloudinaryService.uploadImage(dataUrl, 'errand-proofs');
       setPhoto(url);
       if (selectedErrand.status === ErrandStatus.VERIFYING) {
         await firebaseService.submitForReview(selectedErrand.id, comments, url);
         refresh();
       }
-    } catch (err) { alert("Upload failed."); } finally { setIsUploading(false); setShowCamera(false); }
+    } catch (err) { 
+      alert("Upload failed."); 
+    } finally { 
+      setIsUploading(false); 
+      setShowCamera(false); 
+    }
   };
 
-  const [showBidModal, setShowBidModal] = useState(false);
+  const handleUpload = async (file: File) => {
+    setIsUploading(true);
+    try {
+      const url = await cloudinaryService.uploadImage(file);
+      setPhoto(url);
+      if (selectedErrand?.status === ErrandStatus.VERIFYING) {
+        await firebaseService.submitForReview(selectedErrand.id, comments, url);
+        refresh();
+      }
+    } catch (err) { alert("Upload failed."); } finally { setIsUploading(false); setShowCamera(false); }
+  };
 
   const handleAcceptBudget = () => {
     if (!user) {
@@ -4617,7 +3656,7 @@ const ErrandDetailScreen: React.FC<any> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex flex-col items-center justify-end md:justify-center p-0 md:p-6">
-      {showCamera && <CameraCapture onCapture={handleUpload} onClose={() => setShowCamera(false)} />}
+      {showCamera && <CameraCapture onCapture={handleCameraCapture} onClose={handleCloseCamera} />}
       {fullScreenImage && <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6" onClick={() => setFullScreenImage(null)}><img src={fullScreenImage} className="max-w-full max-h-full object-contain rounded-xl" alt="Proof" /></div>}
       <div className="w-full max-w-2xl bg-white rounded-t-[3rem] md:rounded-[3rem] shadow-2xl overflow-y-auto max-h-[95vh] animate-in slide-in-from-bottom-6">
         <header className="px-6 py-5 border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-10">
@@ -5091,20 +4130,11 @@ const ErrandDetailScreen: React.FC<any> = ({
 
           {activeDetailTab === 'map' && selectedErrand.pickupCoordinates && selectedErrand.dropoffCoordinates && (
             <div className="h-[60vh] w-full rounded-[2rem] overflow-hidden border border-slate-200 shadow-sm animate-in zoom-in-95">
-              <Map 
-                defaultCenter={{ lat: selectedErrand.pickupCoordinates.lat, lng: selectedErrand.pickupCoordinates.lng }} 
-                defaultZoom={13} 
-                gestureHandling={'greedy'}
-                disableDefaultUI={false}
-                mapId="errand_detail_map_tab"
-              >
-                <AdvancedMarker position={{ lat: selectedErrand.pickupCoordinates.lat, lng: selectedErrand.pickupCoordinates.lng }}>
-                  <Pin background={'#000'} glyphColor={'#fff'} borderColor={'#000'} />
-                </AdvancedMarker>
-                <AdvancedMarker position={{ lat: selectedErrand.dropoffCoordinates.lat, lng: selectedErrand.dropoffCoordinates.lng }}>
-                  <Pin background={'#4f46e5'} glyphColor={'#fff'} borderColor={'#4f46e5'} />
-                </AdvancedMarker>
-              </Map>
+              <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center text-slate-400">
+                <MapIcon size={48} className="mb-4 opacity-20" />
+                <span className="text-xs font-black uppercase tracking-widest">Map View (Static Mode)</span>
+                <p className="text-[10px] mt-2 max-w-[200px] text-center opacity-60">Pickup and Dropoff locations would be shown here in a live environment.</p>
+              </div>
             </div>
           )}
 

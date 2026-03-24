@@ -1,218 +1,31 @@
 export enum UserRole {
   REQUESTER = 'requester',
   RUNNER = 'runner',
-  ADMIN = 'admin',
-  TESTER = 'tester'
+  ADMIN = 'admin'
 }
 
 export enum ErrandStatus {
   PENDING = 'pending',
+  BIDDING = 'bidding',
+  ASSIGNED = 'assigned',
+  IN_PROGRESS = 'in_progress',
   ACCEPTED = 'accepted',
-  VERIFYING = 'verifying', // Runner has submitted for review
-  COMPLETED = 'completed', // Requester has signed off
-  CANCELLED = 'cancelled'
+  VERIFYING = 'verifying',
+  REVIEW = 'review',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+  FAILED = 'failed'
 }
 
 export enum ErrandCategory {
   GENERAL = 'General',
+  MAMA_FUA = 'Mama Fua (Laundry)',
+  MARKET_SHOPPING = 'Market Shopping',
   HOUSE_HUNTING = 'House Hunting',
-  MAMA_FUA = 'Mama Fua',
-  SHOPPING = 'Shopping',
-  GIKOMBA_STRAWS = 'Gikomba straws',
+  PACKAGE_DELIVERY = 'Package Delivery',
   TOWN_SERVICE = 'Town Service',
-  PACKAGE_DELIVERY = 'Package Delivery'
-}
-
-export enum NotificationType {
-  NEW_BID = 'new_bid',
-  BID_ACCEPTED = 'bid_accepted',
-  JOB_SUBMITTED = 'job_submitted',
-  JOB_COMPLETED = 'job_completed',
-  NEW_MESSAGE = 'new_message',
-  NEW_ERRAND = 'new_errand',
-  PRICE_REQUEST = 'price_request'
-}
-
-export interface AppNotification {
-  id: string;
-  userId: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  timestamp: number;
-  read: boolean;
-  errandId: string;
-}
-
-export interface Coordinates {
-  lat: number;
-  lng: number;
-}
-
-export interface LocationSuggestion {
-  id: string;
-  name: string;
-  coords: Coordinates;
-  area?: string;
-  description?: string;
-}
-
-export interface ChatMessage {
-  id: string;
-  senderId: string;
-  senderName: string;
-  text: string;
-  timestamp: number;
-}
-
-export interface Bid {
-  runnerId: string;
-  runnerName: string;
-  price: number;
-  timestamp: number;
-  runnerRating: number;
-  eta?: string;
-}
-
-export interface MicroStep {
-  label: string;
-  timestamp: number;
-  completed: boolean;
-}
-
-export interface ErrandProof {
-  url: string;
-  label: string;
-  timestamp: number;
-}
-
-export interface PriceRequest {
-  id: string;
-  itemName: string;
-  originalPrice: number;
-  newPrice: number;
-  status: 'pending' | 'approved' | 'rejected';
-  timestamp: number;
-}
-
-export interface PropertyListing {
-  id: string;
-  title: string;
-  price: number;
-  location: string;
-  imageUrl: string;
-  amenities: {
-    water: boolean;
-    wifi: boolean;
-    security: boolean;
-    parking: boolean;
-  };
-  agentRating: number; // 1-5
-  description: string;
-  timestamp: number;
-}
-
-export interface Errand {
-  id: string;
-  category: ErrandCategory;
-  title: string;
-  description: string;
-  budget: number;
-  acceptedPrice?: number;
-  deadline: string;
-  requesterId: string;
-  requesterName: string;
-  runnerId: string | null;
-  status: ErrandStatus;
-  createdAt: number;
-  pickupLocation: string;
-  pickupCoordinates: Coordinates;
-  dropoffLocation: string;
-  dropoffCoordinates: Coordinates;
-  bids: Bid[];
-  chat: ChatMessage[];
-  distanceKm?: number;
-  routePolyline?: string;
-  requesterRating: number;
-  calculatedPrice?: number;
-  imageUrls?: string[];
-  
-  // Mama Fua specific
-  laundryBaskets?: number;
-  laundryInHouseLocation?: string;
-  preferredDate?: string;
-  isInHouse?: boolean;
-  
-  // House Hunting specific
-  minBudget?: number;
-  maxBudget?: number;
-  houseType?: string;
-  moveInDate?: string;
-  additionalRequirements?: string;
-  
-  // Verification
-  runnerComments?: string;
-  completionPhoto?: string;
-  signature?: string;
-  completedAt?: number;
-  submittedForReviewAt?: number;
-  approvalPenalty?: number;
-  penaltyNotificationSent?: boolean;
-  
-  // Reassignment
-  reassignmentRequested?: boolean;
-  reassignReason?: string;
-  
-  // Overdue handling
-  deadlineTimestamp?: number;
-  overdueReason?: string;
-  overdueReasonSubmittedAt?: number;
-  overdueReasonStatus?: 'pending' | 'approved' | 'rejected';
-  overdueReasonAutoApproved?: boolean;
-  
-  // Voice Notes & Checklists
-  voiceNoteUrl?: string;
-  checklist?: { item: string, checked: boolean }[];
-
-  // Trust & Transparency
-  microSteps?: MicroStep[];
-  runnerProfileSnapshot?: {
-    rating: number;
-    errandsCompleted: number;
-    isVerified: boolean;
-    avatar?: string;
-  };
-  proofs?: ErrandProof[];
-  preferredRunnerId?: string;
-  receiptTotal?: number;
-  serviceFee?: number;
-  isFundsLocked?: boolean;
-  lockedAmount?: number;
-  jobStartedAt?: number;
-  reassignedAt?: number;
-  runnerRatingGiven?: number;
-  receiptServiceFee?: number;
-  
-  // Financial
-  maxShoppingBudget?: number;
-  actualShoppingTotal?: number;
-  priceRequests?: PriceRequest[];
-  
-  // House Hunting
-  propertyListings?: PropertyListing[];
-
-  // Town Service specific
-  urgency?: 'normal' | 'urgent' | 'immediate';
-  
-  // Package Delivery specific
-  packageDescription?: string;
-  packageCost?: number;
-
-  // Shopping specific
-  shoppingList?: string;
-  
-  // Gikomba Straws specific
-  marketSection?: string;
+  GIKOMBA_STRAWS = 'Gikomba Straws',
+  SHOPPING = 'Shopping'
 }
 
 export enum LoyaltyLevel {
@@ -222,85 +35,160 @@ export enum LoyaltyLevel {
   PLATINUM = 'Platinum'
 }
 
+export interface Coordinates {
+  lat: number;
+  lng: number;
+}
+
 export interface User {
   id: string;
   name: string;
   email: string;
   phone: string;
   role: UserRole;
-  runnerCategory?: ErrandCategory;
   isAdmin?: boolean;
-  isVerified: boolean;
-  emailVerified?: boolean;
-  phoneVerified?: boolean;
-  rating: number;
-  ratingCount: number;
-  createdAt: number;
-  avatar?: string;
-  biography?: string;
-  isOnline?: boolean;
-  lastKnownLocation?: Coordinates;
-  balanceOnHold?: number;
-  balanceWithdrawn?: number;
-  walletBalance?: number;
-  errandsCompleted?: number;
-  notificationSettings?: {
-    email: boolean;
-    push: boolean;
-    sms: boolean;
-  };
-  theme?: 'light' | 'dark';
-  favoriteRunnerIds?: string[];
-  loyaltyLevel?: LoyaltyLevel;
-  loyaltyPoints?: number;
-  hoursSaved?: number;
-
-  // Performance Tracking
-  totalErrandsRequested?: number;
-  totalErrandsAccepted?: number;
-  cancellationsCount?: number;
-  lateCompletionsCount?: number;
-  rejectionsCount?: number;
-  
-  cancellationRate?: number; // 0-100
-  lateCompletionRate?: number; // 0-100
-  rejectionRate?: number; // 0-100
-
-  // Suspension
   isSuspended?: boolean;
   suspensionReason?: string;
-  suspensionExpiresAt?: number;
+  phoneVerified?: boolean;
+  emailVerified?: boolean;
+  theme?: 'light' | 'dark';
+  lastKnownLocation?: Coordinates;
+  loyaltyPoints?: number;
+  hoursSaved?: number;
+  loyaltyLevel?: LoyaltyLevel;
+  profilePhoto?: string;
+  avatar?: string;
+  biography?: string;
+  balanceOnHold?: number;
+  walletBalance?: number;
+  cancellationRate?: number;
+  lateCompletionRate?: number;
+  rejectionRate?: number;
+  suspensionExpiresAt?: any;
+  isOnline?: boolean;
+  isVerified?: boolean;
+  disabled?: boolean;
+  notificationSettings?: {
+    push: boolean;
+    email: boolean;
+    sms: boolean;
+  };
+  createdAt?: any;
+  rating?: number;
+  totalTasks?: number;
+}
+
+export interface Errand {
+  id: string;
+  title: string;
+  description: string;
+  category: ErrandCategory;
+  status: ErrandStatus;
+  budget: number;
+  requesterId: string;
+  requesterName: string;
+  runnerId?: string;
+  runnerName?: string;
+  pickupLocation: string;
+  pickupCoordinates: Coordinates;
+  dropoffLocation?: string;
+  dropoffCoordinates?: Coordinates;
+  deadline?: string;
+  createdAt: any;
+  updatedAt: any;
+  bids?: Bid[];
+  isInHouse?: boolean;
+  laundryBaskets?: number;
+  pricePerBasket?: number;
+  houseType?: string;
+  moveInDate?: string;
+  additionalRequirements?: string;
+  urgency?: 'normal' | 'high' | 'urgent';
+  packageDescription?: string;
+  packageCost?: number;
+  shoppingList?: string;
+  marketSection?: string;
+  maxShoppingBudget?: number;
+  calculatedPrice?: number;
+  voiceNoteUrl?: string;
+  checklist?: string[];
+  reviewPhoto?: string;
+  reviewComments?: string;
+  propertyListings?: PropertyListing[];
+  priceRequests?: PriceRequest[];
+  acceptedPrice?: number;
+}
+
+export interface Bid {
+  id: string;
+  runnerId: string;
+  runnerName: string;
+  amount: number;
+  message: string;
+  createdAt: any;
+}
+
+export type NotificationType = 'info' | 'success' | 'warning' | 'error' | 'message' | 'bid' | 'assignment' | 'completion' | 'payment';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: NotificationType;
+  read: boolean;
+  createdAt: any;
+  errandId?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName?: string;
+  text: string;
+  createdAt: any;
+  timestamp?: any;
 }
 
 export interface AppSettings {
   primaryColor: string;
   logoUrl?: string;
   iconUrl?: string;
+  platformFee?: number;
+  minErrandPrice?: number;
+  maintenanceMode?: boolean;
+  appName?: string;
+}
+
+export interface LocationSuggestion {
+  name: string;
+  coords: Coordinates;
 }
 
 export interface RunnerApplication {
   id: string;
   userId: string;
-  fullName: string;
-  phone: string;
-  nationalId: string;
-  idFrontUrl: string;
-  idBackUrl: string;
-  categoryApplied: ErrandCategory;
   status: 'pending' | 'approved' | 'rejected';
-  createdAt: number;
+  idPhoto: string;
+  selfiePhoto: string;
+  fullName?: string;
+  phone?: string;
+  idFrontUrl?: string;
+  idBackUrl?: string;
+  nationalId?: string;
+  categoryApplied?: string;
+  createdAt: any;
 }
 
 export interface FeaturedService {
   id: string;
   title: string;
   description: string;
-  price: number;
   imageUrl: string;
-  category: ErrandCategory;
+  price: number;
   explanation?: string;
   paymentGuide?: string;
-  createdAt: number;
+  category?: string;
 }
 
 export interface ServiceListing {
@@ -308,10 +196,30 @@ export interface ServiceListing {
   title: string;
   description: string;
   price: number;
+  category: string;
+  imageUrl?: string;
+}
+
+export interface PriceRequest {
+  id: string;
+  userId: string;
+  itemDescription: string;
+  itemName?: string;
+  originalPrice?: number;
+  newPrice?: number;
+  status: 'pending' | 'answered';
+  answer?: string;
+  createdAt: any;
+}
+
+export interface PropertyListing {
+  id: string;
+  title: string;
+  price: number;
+  location: string;
+  type: string;
   imageUrl: string;
-  category: ErrandCategory;
-  scope?: string;
-  explanation?: string;
-  paymentGuide?: string;
-  createdAt: number;
+  agentRating?: number;
+  amenities?: string[];
+  description?: string;
 }

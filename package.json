@@ -1,39 +1,39 @@
 {
-  "name": "errands---on-demand",
+  "name": "errand-runner-app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "tsx server.ts",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "tsc && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^1.37.0",
-    "@types/leaflet": "^1.9.21",
-    "@vis.gl/react-google-maps": "^1.7.1",
-    "express": "^5.2.1",
-    "firebase": "^12.9.0",
-    "firebase-admin": "^13.7.0",
-    "leaflet": "^1.9.4",
-    "lucide-react": "^0.562.0",
-    "nodemailer": "^8.0.2",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "react-leaflet": "^5.0.0",
-    "react-router-dom": "^7.12.0",
-    "resend": "^6.9.3",
-    "tsx": "^4.21.0"
+    "@tailwindcss/vite": "^4.2.2",
+    "clsx": "^2.1.0",
+    "framer-motion": "^11.0.8",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^3.8.0",
+    "tailwind-merge": "^2.2.1",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/google.maps": "^3.58.1",
-    "@types/node": "^22.14.0",
-    "@types/nodemailer": "^7.0.11",
-    "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@types/node": "^25.5.0",
+    "@types/react": "^18.2.56",
+    "@types/react-dom": "^18.2.19",
+    "@typescript-eslint/eslint-plugin": "^7.0.2",
+    "@typescript-eslint/parser": "^7.0.2",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "eslint": "^8.56.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.4"
   }
 }

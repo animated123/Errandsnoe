@@ -1,1007 +1,629 @@
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
-  signOut, onAuthStateChanged, updateProfile, signInWithCustomToken,
-  sendPasswordResetEmail, confirmPasswordReset, sendEmailVerification
-} from 'firebase/auth';
-import { 
-  getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, 
-  query, where, orderBy, onSnapshot, Timestamp, addDoc, limit, serverTimestamp,
-  increment, arrayUnion, arrayRemove, getDocFromServer, initializeFirestore
-} from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
-import { 
-  Errand, ErrandStatus, ErrandCategory, User, UserRole, Coordinates, Bid, 
-  AppNotification, NotificationType, AppSettings, ChatMessage, RunnerApplication, 
-  FeaturedService, ServiceListing, MicroStep, ErrandProof, PriceRequest, PropertyListing 
-} from '../types';
+import { User, UserRole, Errand, ErrandStatus, AppNotification, AppSettings, FeaturedService, ServiceListing, RunnerApplication } from '../types';
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+// Helper to simulate network delay
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Initialize Firestore with named database if provided
-const dbId = firebaseConfig.firestoreDatabaseId === '(default)' ? undefined : firebaseConfig.firestoreDatabaseId;
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-}, dbId);
-
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if(error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. ");
-    }
-    // Skip logging for other errors, as this is simply a connection test.
-  }
-}
-testConnection();
-
-export const calculateDistance = (p1: Coordinates, p2: Coordinates) => {
-  const R = 6371;
-  const dLat = (p2.lat - p1.lat) * Math.PI / 180;
-  const dLng = (p2.lng - p1.lng) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return parseFloat((R * c).toFixed(1));
+// LocalStorage keys
+const KEYS = {
+  USERS: 'errand_runner_users',
+  ERRANDS: 'errand_runner_errands',
+  NOTIFICATIONS: 'errand_runner_notifications',
+  SETTINGS: 'errand_runner_settings',
+  FEATURED_SERVICES: 'errand_runner_featured_services',
+  SERVICE_LISTINGS: 'errand_runner_service_listings',
+  RUNNER_APPLICATIONS: 'errand_runner_runner_applications',
+  SUPPORT_CHATS: 'errand_runner_support_chats',
+  STATS: 'errand_runner_stats',
+  CURRENT_USER: 'errand_runner_current_user'
 };
 
-export const formatFirebaseError = (error: any): string => {
-  if (!error) return "An unexpected error occurred.";
-  
-  const message = typeof error === 'string' ? error : error.message;
-  
-  // Handle JSON error messages from server
-  if (message) {
-    try {
-      const parsed = JSON.parse(message);
-      if (parsed.error) return parsed.error;
-    } catch (e) {}
-  }
-
-  // Handle common Firebase Auth error codes
-  if (error.code) {
-    switch (error.code) {
-      case 'auth/user-not-found': return "No account found with this email.";
-      case 'auth/wrong-password': return "Incorrect password. Please try again.";
-      case 'auth/email-already-in-use': return "This email is already registered.";
-      case 'auth/invalid-email': return "Please enter a valid email address.";
-      case 'auth/weak-password': return "Password should be at least 6 characters.";
-      case 'auth/network-request-failed': return "Network error. Please check your internet connection.";
-      case 'auth/too-many-requests': return "Too many attempts. Please try again later.";
-      case 'auth/internal-error': return "Authentication service error. Please try again later.";
-      case 'auth/operation-not-allowed': return "Email/Password sign-in is not enabled. Please contact support.";
-    }
-  }
-
-  // Handle Firestore permission errors
-  if (message && message.toLowerCase().includes('permission denied')) {
-    return "You don't have permission to perform this action.";
-  }
-
-  return message || "An unexpected error occurred.";
+// Initial Data
+const INITIAL_SETTINGS: AppSettings = {
+  appName: 'ErrandRunner',
+  primaryColor: '#FF6321',
+  logoUrl: '',
+  iconUrl: '',
+  platformFee: 10,
+  minErrandPrice: 100,
+  maintenanceMode: false
 };
 
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
+const INITIAL_FEATURED_SERVICES: FeaturedService[] = [
+  { id: '1', title: 'Mama Fua (Laundry)', description: 'Professional laundry services at your doorstep.', imageUrl: 'https://picsum.photos/seed/laundry/400/300', price: 500, category: 'Mama Fua' },
+  { id: '2', title: 'Market Shopping', description: 'Fresh groceries from the local market.', imageUrl: 'https://picsum.photos/seed/market/400/300', price: 300, category: 'Market Shopping' },
+  { id: '3', title: 'House Hunting', description: 'Find your next home without the hassle.', imageUrl: 'https://picsum.photos/seed/home/400/300', price: 1000, category: 'House Hunting' }
+];
 
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
+const INITIAL_SERVICE_LISTINGS: ServiceListing[] = [
+  { id: '1', title: 'Express Delivery', price: 500, category: 'Delivery', description: 'Fast delivery within the city.' },
+  { id: '2', title: 'Gikomba Shopping', price: 1000, category: 'Shopping', description: 'Detailed shopping from Gikomba market.' }
+];
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
-
-export const normalizePhone = (phone: string) => {
-  let normalized = phone.replace(/\D/g, '');
-  if (normalized.startsWith('254')) {
-    normalized = normalized.substring(3);
-  }
-  if (normalized.startsWith('0')) {
-    normalized = normalized.substring(1);
-  }
-  return '254' + normalized;
+// Helper to get data from localStorage
+const getLocal = (key: string, fallback: any = []) => {
+  const data = localStorage.getItem(key);
+  return data ? JSON.parse(data) : fallback;
 };
 
-export const formatPhoneDisplay = (phone: string | undefined) => {
-  if (!phone) return 'No Phone';
-  let normalized = phone.replace(/\D/g, '');
-  if (normalized.startsWith('254')) {
-    return `+${normalized}`;
-  }
-  return phone;
+// Helper to save data to localStorage
+const saveLocal = (key: string, data: any) => {
+  localStorage.setItem(key, JSON.stringify(data));
 };
 
-class FirebaseService {
-  // Auth
-  subscribeToAuth(callback: (user: User | null) => void) {
-    return onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
-          if (userDoc.exists()) {
-            const data = userDoc.data() as User;
-            callback({
-              ...data,
-              id: fbUser.uid,
-              emailVerified: fbUser.emailVerified,
-              role: data.role || UserRole.REQUESTER,
-              rating: data.rating || 5,
-              name: data.name || 'User'
-            });
-          } else {
-            callback(null);
-          }
-        } catch (error) {
-          console.error("Error fetching user data:", error);
-          callback(null);
-        }
-      } else {
-        callback(null);
-      }
-    });
-  }
+// Initialize data if not present
+if (!localStorage.getItem(KEYS.SETTINGS)) saveLocal(KEYS.SETTINGS, INITIAL_SETTINGS);
+if (!localStorage.getItem(KEYS.FEATURED_SERVICES)) saveLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
+if (!localStorage.getItem(KEYS.SERVICE_LISTINGS)) saveLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
 
-  async login(emailOrPhone: string, password: string): Promise<User> {
-    try {
-      let email = emailOrPhone;
-      if (!emailOrPhone.includes('@')) {
-        const normalized = normalizePhone(emailOrPhone);
-        const publicUser = await this.fetchPublicUserByPhone(normalized);
-        if (publicUser && publicUser.email) {
-          email = publicUser.email;
-        } else {
-          throw new Error("No account found with this phone number.");
-        }
-      }
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      if (!userDoc.exists()) throw new Error("User data not found");
-      const data = userDoc.data() as User;
-      return {
-        ...data,
-        id: userCredential.user.uid,
-        role: data.role || UserRole.REQUESTER,
-        rating: data.rating || 5,
-        name: data.name || 'User'
-      };
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('permission')) {
-        handleFirestoreError(error, OperationType.GET, 'users');
-      }
-      throw error;
-    }
-  }
-
-  async signInWithToken(token: string): Promise<User> {
-    try {
-      const userCredential = await signInWithCustomToken(auth, token);
-      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      if (!userDoc.exists()) throw new Error("User data not found");
-      const data = userDoc.data() as User;
-      return {
-        ...data,
-        id: userCredential.user.uid,
-        role: data.role || UserRole.REQUESTER,
-        rating: data.rating || 5,
-        name: data.name || 'User'
-      };
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('permission')) {
-        handleFirestoreError(error, OperationType.GET, 'users');
-      }
-      throw error;
-    }
-  }
-
-  async register(name: string, email: string, phone: string, password: string, isAdmin: boolean = false, phoneVerified: boolean = false): Promise<User> {
-    const normalized = normalizePhone(phone);
-    const existingUser = await this.fetchPublicUserByPhone(normalized);
-    if (existingUser) {
-      throw new Error("Phone number already registered. Please login.");
-    }
-
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const id = userCredential.user.uid;
-    const newUser: User = {
-      id, email, phone: normalized, name, role: UserRole.REQUESTER, isAdmin,
-      isVerified: false, phoneVerified, rating: 5, ratingCount: 0, createdAt: Date.now(),
-      walletBalance: 0, balanceOnHold: 0, balanceWithdrawn: 0,
-      errandsCompleted: 0, isOnline: true,
-      notificationSettings: { email: true, push: true, sms: false },
-      theme: 'light', favoriteRunnerIds: [], loyaltyLevel: 'Bronze' as any, loyaltyPoints: 0, hoursSaved: 0
+export const firebaseService = {
+  subscribeToAuth: (callback: (user: User | null) => void) => {
+    const checkAuth = () => {
+      const user = getLocal(KEYS.CURRENT_USER, null);
+      callback(user);
     };
-    try {
-      await setDoc(doc(db, 'users', id), newUser);
-      await setDoc(doc(db, 'public_users', id), { 
-        email, 
-        phone: normalized, 
-        name, 
-        role: UserRole.REQUESTER, 
-        isOnline: true, 
-        rating: 5,
-        loyaltyLevel: 'Bronze'
-      });
-      await updateProfile(userCredential.user, { displayName: name });
-      return newUser;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `users/${id}`);
-      throw error;
+    checkAuth();
+    window.addEventListener('storage', checkAuth);
+    return () => window.removeEventListener('storage', checkAuth);
+  },
+
+  login: async (email: string, pass: string): Promise<User> => {
+    await delay(500);
+    const users = getLocal(KEYS.USERS, []);
+    const user = users.find((u: User) => u.email === email);
+    if (user) {
+      saveLocal(KEYS.CURRENT_USER, user);
+      return user;
     }
-  }
+    throw new Error('Invalid credentials');
+  },
 
-  async logout(): Promise<void> {
-    await signOut(auth);
-  }
-
-  async sendEmailVerification(): Promise<void> {
-    if (auth.currentUser) {
-      await sendEmailVerification(auth.currentUser);
-    }
-  }
-
-  async sendPasswordReset(email: string): Promise<void> {
-    try {
-      const response = await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to send reset email');
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  async confirmReset(token: string, newPassword: string): Promise<void> {
-    try {
-      const response = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to reset password');
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  async getCurrentUser(): Promise<User | null> {
-    const user = auth.currentUser;
-    if (!user) return null;
-    try {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (!userDoc.exists()) return null;
-      const data = userDoc.data() as User;
-      return {
-        ...data,
-        id: user.uid,
-        emailVerified: user.emailVerified,
-        role: data.role || UserRole.REQUESTER,
-        rating: data.rating || 5,
-        name: data.name || 'User'
-      };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
-      throw error;
-    }
-  }
-
-  // User Settings
-  async updateUserSettings(userId: string, updates: Partial<User>): Promise<void> {
-    try {
-      if (updates.phone) {
-        const normalized = normalizePhone(updates.phone);
-        const existingUser = await this.fetchUserByPhone(normalized);
-        if (existingUser && existingUser.id !== userId) {
-          throw new Error("Phone number already in use by another account.");
-        }
-        updates.phone = normalized;
-      }
-      await updateDoc(doc(db, 'users', userId), updates);
-      
-      // Also update public_users if relevant fields changed
-      const publicUpdates: any = {};
-      if (updates.email) publicUpdates.email = updates.email;
-      if (updates.phone) publicUpdates.phone = updates.phone;
-      if (updates.name) publicUpdates.name = updates.name;
-      if (updates.role) publicUpdates.role = updates.role;
-      if (updates.isOnline !== undefined) publicUpdates.isOnline = updates.isOnline;
-      if (updates.rating !== undefined) publicUpdates.rating = updates.rating;
-      if (updates.loyaltyLevel) publicUpdates.loyaltyLevel = updates.loyaltyLevel;
-      
-      if (Object.keys(publicUpdates).length > 0) {
-        await setDoc(doc(db, 'public_users', userId), publicUpdates, { merge: true });
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('permission')) {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
-      }
-      throw error;
-    }
-  }
-
-  // Errands
-  async createErrand(data: any): Promise<Errand> {
-    const errandRef = doc(collection(db, 'errands'));
-    const serviceFee = Math.ceil((data.budget || 0) * 0.1);
-    const lockedAmount = (data.budget || 0) + serviceFee;
+  register: async (name: string, email: string, phone: string, pass: string): Promise<User> => {
+    await delay(500);
+    const users = getLocal(KEYS.USERS, []);
+    if (users.find((u: User) => u.email === email)) throw new Error('Email already in use');
     
-    const errand: Errand = {
-      ...data,
-      id: errandRef.id,
-      status: ErrandStatus.PENDING,
-      createdAt: Date.now(),
-      bids: [],
-      chat: [],
-      runnerId: null,
-      isFundsLocked: true,
-      lockedAmount,
-      serviceFee,
-      microSteps: [
-        { label: 'Task Posted', timestamp: Date.now(), completed: true },
-        { label: 'Awaiting Bids', timestamp: Date.now(), completed: false },
-        { label: 'Runner Assigned', timestamp: Date.now(), completed: false },
-        { label: 'In Progress', timestamp: Date.now(), completed: false },
-        { label: 'Reviewing', timestamp: Date.now(), completed: false },
-        { label: 'Completed', timestamp: Date.now(), completed: false }
-      ]
+    const newUser: User = {
+      id: Math.random().toString(36).substr(2, 9),
+      name,
+      email,
+      phone,
+      role: UserRole.REQUESTER,
+      loyaltyPoints: 0,
+      hoursSaved: 0,
+      loyaltyLevel: 'Bronze' as any,
+      createdAt: new Date().toISOString() as any
     };
-    try {
-      await setDoc(errandRef, errand);
-      return errand;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `errands/${errandRef.id}`);
-      throw error;
+    
+    users.push(newUser);
+    saveLocal(KEYS.USERS, users);
+    saveLocal(KEYS.CURRENT_USER, newUser);
+    return newUser;
+  },
+
+  logout: async () => {
+    await delay(200);
+    localStorage.removeItem(KEYS.CURRENT_USER);
+    window.dispatchEvent(new Event('storage'));
+  },
+
+  updateUserSettings: async (userId: string, settings: Partial<User>) => {
+    const users = getLocal(KEYS.USERS, []);
+    const index = users.findIndex((u: User) => u.id === userId);
+    if (index !== -1) {
+      users[index] = { ...users[index], ...settings };
+      saveLocal(KEYS.USERS, users);
+      const currentUser = getLocal(KEYS.CURRENT_USER, null);
+      if (currentUser && currentUser.id === userId) {
+        saveLocal(KEYS.CURRENT_USER, users[index]);
+      }
     }
-  }
+  },
 
-  async fetchErrandById(id: string): Promise<Errand | null> {
-    try {
-      const errandDoc = await getDoc(doc(db, 'errands', id));
-      return errandDoc.exists() ? errandDoc.data() as Errand : null;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `errands/${id}`);
-      throw error;
-    }
-  }
-
-  async updateErrand(id: string, updates: Partial<Errand>): Promise<void> {
-    try {
-      await updateDoc(doc(db, 'errands', id), updates);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `errands/${id}`);
-    }
-  }
-
-  async cancelErrand(id: string): Promise<void> {
-    await this.updateErrand(id, { status: ErrandStatus.CANCELLED });
-  }
-
-  // Subscriptions
-  subscribeToUserErrands(userId: string, role: UserRole, callback: (errands: Errand[]) => void) {
-    if (!userId) {
-      console.warn("subscribeToUserErrands called with undefined userId");
-      return () => {};
-    }
-    const field = role === UserRole.RUNNER ? 'runnerId' : 'requesterId';
-    // Removed orderBy to avoid index requirement
-    const q = query(collection(db, 'errands'), where(field, '==', userId));
-    return onSnapshot(q, (snapshot) => {
-      const errands = snapshot.docs.map(d => d.data() as Errand);
-      errands.sort((a, b) => b.createdAt - a.createdAt);
-      callback(errands);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'errands'));
-  }
-
-  subscribeToAvailableErrands(callback: (errands: Errand[]) => void) {
-    // Removed orderBy to avoid index requirement
-    const q = query(collection(db, 'errands'), where('status', '==', ErrandStatus.PENDING));
-    return onSnapshot(q, (snapshot) => {
-      const errands = snapshot.docs.map(d => d.data() as Errand);
-      errands.sort((a, b) => b.createdAt - a.createdAt);
-      callback(errands);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'errands'));
-  }
-
-  subscribeToNotifications(userId: string, callback: (notifs: AppNotification[]) => void) {
-    if (!userId) {
-      console.warn("subscribeToNotifications called with undefined userId");
-      return () => {};
-    }
-    // Removed orderBy and limit to avoid index requirement
-    const q = query(collection(db, 'notifications'), where('userId', '==', userId));
-    return onSnapshot(q, (snapshot) => {
-      const notifs = snapshot.docs.map(d => d.data() as AppNotification);
-      notifs.sort((a, b) => b.timestamp - a.timestamp);
-      callback(notifs.slice(0, 20));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'notifications'));
-  }
-
-  // Bids
-  async placeBid(errandId: string, runnerId: string, runnerName: string, price: number, eta: string): Promise<void> {
-    const bid: Bid = {
-      runnerId,
-      runnerName,
-      price,
-      timestamp: Date.now(),
-      runnerRating: 5,
-      eta
+  subscribeToSettings: (callback: (settings: AppSettings) => void) => {
+    const checkSettings = () => {
+      callback(getLocal(KEYS.SETTINGS, INITIAL_SETTINGS));
     };
-    try {
-      await updateDoc(doc(db, 'errands', errandId), {
-        bids: arrayUnion(bid)
-      });
+    checkSettings();
+    window.addEventListener('storage', checkSettings);
+    return () => window.removeEventListener('storage', checkSettings);
+  },
 
-      // Notify requester about new bid
-      const errand = await this.fetchErrandById(errandId);
-      if (errand) {
-        const requester = await this.fetchUserById(errand.requesterId);
-        if (requester && requester.phone) {
-          const message = `Dear ${requester.name}, a new bid of Ksh ${price} has been placed on your errand "${errand.title}" by ${runnerName}. Check the app to review.`;
-          await fetch('/api/notifications/sms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipient: requester.phone, message })
-          }).catch(e => console.error("SMS failed", e));
-        }
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
-    }
-  }
-
-  async acceptBid(errandId: string, runnerId: string, runnerName: string, price: number, eta: string = 'ASAP'): Promise<void> {
-    try {
-      await updateDoc(doc(db, 'errands', errandId), {
-        runnerId,
-        acceptedPrice: price,
-        status: ErrandStatus.ACCEPTED,
-        jobStartedAt: Date.now()
-      });
-
-      const errand = await this.fetchErrandById(errandId);
-      if (errand) {
-        // Notify runner that their bid was approved
-        const runner = await this.fetchUserById(runnerId);
-        if (runner && runner.phone) {
-          const message = `Dear ${runner.name}, your bid for errand "${errand.title}" has been approved! You can now start the task.`;
-          await fetch('/api/notifications/sms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipient: runner.phone, message })
-          }).catch(e => console.error("SMS failed", e));
-        }
-
-        // Notify requester if they didn't do it themselves (e.g. auto-accept or admin action)
-        if (errand.requesterId !== auth.currentUser?.uid) {
-          const requester = await this.fetchUserById(errand.requesterId);
-          if (requester && requester.phone) {
-            const message = `Dear ${requester.name}, your errand "${errand.title}" is now active! Runner: ${runnerName}.`;
-            await fetch('/api/notifications/sms', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ recipient: requester.phone, message })
-            }).catch(e => console.error("SMS failed", e));
-          }
-        }
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
-    }
-  }
-
-  // Chat
-  async sendMessage(errandId: string, senderId: string, senderName: string, text: string): Promise<void> {
-    const message: ChatMessage = {
-      id: Math.random().toString(36).substring(7),
-      senderId,
-      senderName,
-      text,
-      timestamp: Date.now()
-    };
-    try {
-      await updateDoc(doc(db, 'errands', errandId), {
-        chat: arrayUnion(message)
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
-    }
-  }
-
-  // Support Chat
-  subscribeToSupportChat(userId: string, callback: (chat: any) => void) {
-    if (!userId) {
-      console.warn("subscribeToSupportChat called with undefined userId");
-      return () => {};
-    }
-    return onSnapshot(doc(db, 'support_chats', userId), async (snapshot) => {
-      if (snapshot.exists()) {
-        const chatData = snapshot.data();
-        const msgsSnap = await getDocs(query(collection(db, `support_chats/${userId}/messages`), orderBy('timestamp', 'asc')));
-        callback({
-          ...chatData,
-          messages: msgsSnap.docs.map(d => d.data() as ChatMessage)
-        });
-      } else {
-        callback({ messages: [] });
-      }
-    }, (error) => handleFirestoreError(error, OperationType.GET, `support_chats/${userId}`));
-  }
-
-  async fetchNotifications(userId: string): Promise<AppNotification[]> {
-    if (!userId) return [];
-    try {
-      // Removed orderBy and limit to avoid index requirement
-      const q = query(collection(db, 'notifications'), where('userId', '==', userId));
-      const snapshot = await getDocs(q);
-      const notifs = snapshot.docs.map(d => d.data() as AppNotification);
-      notifs.sort((a, b) => b.timestamp - a.timestamp);
-      return notifs.slice(0, 20);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'notifications');
-      throw error;
-    }
-  }
-
-  async markNotificationsAsRead(userId: string): Promise<void> {
-    if (!userId) return;
-    try {
-      const q = query(collection(db, 'notifications'), where('userId', '==', userId), where('read', '==', false));
-      const snapshot = await getDocs(q);
-      const batch = snapshot.docs.map(d => updateDoc(d.ref, { read: true }));
-      await Promise.all(batch);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'notifications');
-    }
-  }
-
-  async reassignErrand(errandId: string, reason: string): Promise<void> {
-    await this.updateErrand(errandId, { 
-      runnerId: null, 
-      status: ErrandStatus.PENDING, 
-      reassignmentRequested: false,
-      reassignReason: reason,
-      reassignedAt: Date.now()
+  getAppStats: async () => {
+    await delay(300);
+    return getLocal(KEYS.STATS, {
+      totalUsers: getLocal(KEYS.USERS, []).length,
+      totalTasks: getLocal(KEYS.ERRANDS, []).length,
+      onlineUsers: Math.floor(Math.random() * 10),
+      avgDistance: 5.2,
+      avgCompletionTime: 45,
+      avgPenalty: 0,
+      failedErrandsPercent: 2,
+      revenuePerDay: [
+        { date: '2024-03-18', amount: 1200 },
+        { date: '2024-03-19', amount: 1500 },
+        { date: '2024-03-20', amount: 1100 },
+        { date: '2024-03-21', amount: 1800 },
+        { date: '2024-03-22', amount: 2200 },
+        { date: '2024-03-23', amount: 1900 },
+        { date: '2024-03-24', amount: 2500 }
+      ],
+      categoryDistribution: [
+        { name: 'Laundry', value: 400 },
+        { name: 'Shopping', value: 300 },
+        { name: 'Delivery', value: 300 },
+        { name: 'House Hunting', value: 200 }
+      ],
+      topRunners: [],
+      topRequesters: []
     });
-  }
+  },
 
-  async sendSupportMessage(userId: string, senderName: string, text: string, isAdmin: boolean = false): Promise<void> {
-    const message: ChatMessage = {
-      id: Math.random().toString(36).substring(7),
+  fetchFeaturedServices: async (): Promise<FeaturedService[]> => {
+    await delay(300);
+    return getLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
+  },
+
+  fetchServiceListings: async (): Promise<ServiceListing[]> => {
+    await delay(300);
+    return getLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
+  },
+
+  createErrand: async (data: any) => {
+    await delay(500);
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const newErrand = {
+      ...data,
+      id: Math.random().toString(36).substr(2, 9),
+      status: ErrandStatus.PENDING,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    errands.push(newErrand);
+    saveLocal(KEYS.ERRANDS, errands);
+    return { id: newErrand.id };
+  },
+
+  subscribeToUserErrands: (userId: string, role: UserRole, callback: (errands: Errand[]) => void) => {
+    const field = role === UserRole.RUNNER ? 'runnerId' : 'requesterId';
+    const checkErrands = () => {
+      const errands = getLocal(KEYS.ERRANDS, []);
+      callback(errands.filter((e: any) => e[field] === userId).sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt)));
+    };
+    checkErrands();
+    window.addEventListener('storage', checkErrands);
+    return () => window.removeEventListener('storage', checkErrands);
+  },
+
+  subscribeToAvailableErrands: (callback: (errands: Errand[]) => void) => {
+    const checkErrands = () => {
+      const errands = getLocal(KEYS.ERRANDS, []);
+      callback(errands.filter((e: any) => [ErrandStatus.PENDING, ErrandStatus.BIDDING].includes(e.status)).sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt)));
+    };
+    checkErrands();
+    window.addEventListener('storage', checkErrands);
+    return () => window.removeEventListener('storage', checkErrands);
+  },
+
+  subscribeToNotifications: (userId: string, callback: (notifs: AppNotification[]) => void) => {
+    const checkNotifs = () => {
+      const notifs = getLocal(KEYS.NOTIFICATIONS, []);
+      callback(notifs.filter((n: any) => n.userId === userId).sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt)));
+    };
+    checkNotifs();
+    window.addEventListener('storage', checkNotifs);
+    return () => window.removeEventListener('storage', checkNotifs);
+  },
+
+  fetchErrandById: async (id: string): Promise<Errand | null> => {
+    await delay(300);
+    const errands = getLocal(KEYS.ERRANDS, []);
+    return errands.find((e: any) => e.id === id) || null;
+  },
+
+  getNearbyRunners: async (): Promise<User[]> => {
+    await delay(300);
+    const users = getLocal(KEYS.USERS, []);
+    return users.filter((u: User) => u.role === UserRole.RUNNER).slice(0, 10);
+  },
+
+  submitForReview: async (errandId: string, comments: string, photo: string) => {
+    await delay(500);
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index] = {
+        ...errands[index],
+        status: ErrandStatus.REVIEW,
+        reviewComments: comments,
+        reviewPhoto: photo,
+        updatedAt: new Date().toISOString()
+      };
+      saveLocal(KEYS.ERRANDS, errands);
+    }
+  },
+
+  completeErrand: async (errandId: string, signature: string, rating: number) => {
+    await delay(500);
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index] = {
+        ...errands[index],
+        status: ErrandStatus.COMPLETED,
+        rating,
+        signature,
+        updatedAt: new Date().toISOString()
+      };
+      saveLocal(KEYS.ERRANDS, errands);
+    }
+  },
+
+  fetchRunnerApplications: async (): Promise<RunnerApplication[]> => {
+    await delay(300);
+    return getLocal(KEYS.RUNNER_APPLICATIONS, []);
+  },
+
+  fetchAllUsers: async (): Promise<User[]> => {
+    await delay(300);
+    return getLocal(KEYS.USERS, []);
+  },
+
+  adminUpdateUser: async (userId: string, updates: any) => {
+    await firebaseService.updateUserSettings(userId, updates);
+  },
+
+  adminDisableUser: async (userId: string, disabled: boolean) => {
+    await firebaseService.updateUserSettings(userId, { disabled } as any);
+  },
+
+  adminDeleteUser: async (userId: string) => {
+    const users = getLocal(KEYS.USERS, []);
+    const newUsers = users.filter((u: User) => u.id !== userId);
+    saveLocal(KEYS.USERS, newUsers);
+  },
+
+  adminChangeUserPassword: async (userId: string, newPass: string) => {
+    console.log('Mock password change', userId, newPass);
+  },
+
+  updateRunnerApplicationStatus: async (appId: string, userId: string, status: string, category?: string) => {
+    const apps = getLocal(KEYS.RUNNER_APPLICATIONS, []);
+    const index = apps.findIndex((a: any) => a.id === appId);
+    if (index !== -1) {
+      apps[index] = { ...apps[index], status, categoryApplied: category };
+      saveLocal(KEYS.RUNNER_APPLICATIONS, apps);
+      if (status === 'approved') {
+        await firebaseService.updateUserSettings(userId, { role: UserRole.RUNNER });
+      }
+    }
+  },
+
+  saveAppSettings: async (settings: Partial<AppSettings>) => {
+    const current = getLocal(KEYS.SETTINGS, INITIAL_SETTINGS);
+    saveLocal(KEYS.SETTINGS, { ...current, ...settings });
+  },
+
+  subscribeToAllSupportChats: (callback: (chats: any[]) => void) => {
+    const checkChats = () => {
+      callback(getLocal(KEYS.SUPPORT_CHATS, []));
+    };
+    checkChats();
+    window.addEventListener('storage', checkChats);
+    return () => window.removeEventListener('storage', checkChats);
+  },
+
+  subscribeToSupportChat: (userId: string, callback: (data: any) => void) => {
+    const checkChat = () => {
+      const chats = getLocal(KEYS.SUPPORT_CHATS, []);
+      const chat = chats.find((c: any) => c.userId === userId);
+      callback(chat || { messages: [] });
+    };
+    checkChat();
+    window.addEventListener('storage', checkChat);
+    return () => window.removeEventListener('storage', checkChat);
+  },
+
+  markSupportChatAsRead: async (userId: string, isAdmin: boolean) => {
+    const chats = getLocal(KEYS.SUPPORT_CHATS, []);
+    const index = chats.findIndex((c: any) => c.userId === userId);
+    if (index !== -1) {
+      chats[index] = {
+        ...chats[index],
+        [isAdmin ? 'unreadByAdmin' : 'unreadByUser']: false
+      };
+      saveLocal(KEYS.SUPPORT_CHATS, chats);
+    }
+  },
+
+  sendSupportMessage: async (userId: string, senderName: string, text: string, isAdmin: boolean) => {
+    const chats = getLocal(KEYS.SUPPORT_CHATS, []);
+    const index = chats.findIndex((c: any) => c.userId === userId);
+    const newMessage = {
+      id: Math.random().toString(36).substr(2, 9),
       senderId: isAdmin ? 'admin' : userId,
       senderName,
       text,
-      timestamp: Date.now()
+      createdAt: new Date().toISOString()
     };
-    try {
-      await addDoc(collection(db, `support_chats/${userId}/messages`), message);
-      await setDoc(doc(db, 'support_chats', userId), {
-        lastMessage: text,
-        lastTimestamp: Date.now(),
+    if (index !== -1) {
+      chats[index].messages.push(newMessage);
+      chats[index].updatedAt = new Date().toISOString();
+      chats[index].unreadByAdmin = !isAdmin;
+      chats[index].unreadByUser = isAdmin;
+    } else {
+      chats.push({
+        id: Math.random().toString(36).substr(2, 9),
         userId,
         userName: senderName,
+        messages: [newMessage],
+        updatedAt: new Date().toISOString(),
         unreadByAdmin: !isAdmin,
         unreadByUser: isAdmin
-      }, { merge: true });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `support_chats/${userId}/messages`);
-    }
-  }
-
-  // Admin & Lookups
-  async fetchPublicUserByEmail(email: string): Promise<{id: string, email: string, phone: string} | null> {
-    try {
-      const q = query(collection(db, 'public_users'), where('email', '==', email), limit(1));
-      const snapshot = await getDocs(q);
-      if (snapshot.empty) return null;
-      const d = snapshot.docs[0];
-      return { id: d.id, ...d.data() } as any;
-    } catch (error) {
-      console.error("Public email lookup error:", error);
-      return null;
-    }
-  }
-
-  async fetchPublicUserByPhone(phone: string): Promise<{id: string, email: string, phone: string} | null> {
-    try {
-      const q = query(collection(db, 'public_users'), where('phone', '==', phone), limit(1));
-      const snapshot = await getDocs(q);
-      if (snapshot.empty) return null;
-      const d = snapshot.docs[0];
-      return { id: d.id, ...d.data() } as any;
-    } catch (error) {
-      console.error("Public phone lookup error:", error);
-      return null;
-    }
-  }
-
-  async fetchUserByPhone(phone: string): Promise<User | null> {
-    try {
-      const q = query(collection(db, 'users'), where('phone', '==', phone), limit(1));
-      const snapshot = await getDocs(q);
-      if (snapshot.empty) return null;
-      const d = snapshot.docs[0];
-      return { id: d.id, ...d.data() } as User;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'users');
-      return null;
-    }
-  }
-
-  async fetchUserById(userId: string): Promise<User | null> {
-    try {
-      const docSnap = await getDoc(doc(db, 'users', userId));
-      if (docSnap.exists()) {
-        return { id: docSnap.id, ...docSnap.data() } as User;
-      }
-      return null;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `users/${userId}`);
-      return null;
-    }
-  }
-
-  async fetchAllUsers(): Promise<User[]> {
-    try {
-      const snapshot = await getDocs(collection(db, 'users'));
-      return snapshot.docs.map(d => ({ id: d.id, ...d.data() as User }));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'users');
-      throw error;
-    }
-  }
-
-  async adminUpdateUser(userId: string, updates: Partial<User>): Promise<void> {
-    await this.updateUserSettings(userId, updates);
-  }
-
-  async adminDeleteUser(userId: string): Promise<void> {
-    try {
-      const response = await fetch(`/api/admin/users/${userId}/delete`, { method: 'POST' });
-      const text = await response.text();
-      if (!response.ok) {
-        throw new Error(text || 'Failed to delete user');
-      }
-    } catch (error) {
-      console.error('Delete user error:', error);
-      throw error;
-    }
-  }
-
-  async adminDisableUser(userId: string, disabled: boolean): Promise<void> {
-    try {
-      const response = await fetch(`/api/admin/users/${userId}/disable`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ disabled })
       });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to disable user');
+    }
+    saveLocal(KEYS.SUPPORT_CHATS, chats);
+  },
+
+  addFeaturedService: async (service: any) => {
+    const services = getLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
+    services.push({ ...service, id: Math.random().toString(36).substr(2, 9) });
+    saveLocal(KEYS.FEATURED_SERVICES, services);
+  },
+
+  deleteFeaturedService: async (id: string) => {
+    const services = getLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
+    saveLocal(KEYS.FEATURED_SERVICES, services.filter((s: any) => s.id !== id));
+  },
+
+  addServiceListing: async (listing: any) => {
+    const listings = getLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
+    listings.push({ ...listing, id: Math.random().toString(36).substr(2, 9) });
+    saveLocal(KEYS.SERVICE_LISTINGS, listings);
+  },
+
+  deleteServiceListing: async (id: string) => {
+    const listings = getLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
+    saveLocal(KEYS.SERVICE_LISTINGS, listings.filter((l: any) => l.id !== id));
+  },
+
+  getCurrentUser: async (): Promise<User | null> => {
+    return getLocal(KEYS.CURRENT_USER, null);
+  },
+
+  updateMicroStep: async (errandId: string, stepIndex: number, completed: boolean) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      const checklist = errands[index].checklist || [];
+      if (checklist[stepIndex]) {
+        checklist[stepIndex].completed = completed;
+        errands[index].checklist = checklist;
+        saveLocal(KEYS.ERRANDS, errands);
       }
-    } catch (error) {
-      console.error('Disable user error:', error);
-      throw error;
     }
-  }
+  },
 
-  async adminChangeUserPassword(userId: string, password: string): Promise<void> {
-    try {
-      const response = await fetch(`/api/admin/users/${userId}/password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to change password');
-      }
-    } catch (error) {
-      console.error('Change password error:', error);
-      throw error;
+  addErrandProof: async (errandId: string, photoUrl: string, label: string) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      const proofs = errands[index].proofs || [];
+      proofs.push({ url: photoUrl, label, createdAt: new Date().toISOString() });
+      errands[index].proofs = proofs;
+      errands[index].updatedAt = new Date().toISOString();
+      saveLocal(KEYS.ERRANDS, errands);
     }
-  }
+  },
 
-  // Settings
-  subscribeToSettings(callback: (settings: AppSettings) => void) {
-    return onSnapshot(doc(db, 'settings', 'app'), (snapshot) => {
-      if (snapshot.exists()) callback(snapshot.data() as AppSettings);
-    });
-  }
-
-  async saveAppSettings(settings: Partial<AppSettings>): Promise<void> {
-    try {
-      await setDoc(doc(db, 'settings', 'app'), settings, { merge: true });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'settings/app');
+  updateErrandReceiptData: async (errandId: string, total: number, serviceFee: number) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index].receiptTotal = total;
+      errands[index].serviceFee = serviceFee;
+      errands[index].updatedAt = new Date().toISOString();
+      saveLocal(KEYS.ERRANDS, errands);
     }
-  }
+  },
 
-  // Featured Services & Listings
-  async fetchFeaturedServices(): Promise<FeaturedService[]> {
-    try {
-      const snapshot = await getDocs(collection(db, 'featured_services'));
-      return snapshot.docs.map(d => d.data() as FeaturedService);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'featured_services');
-      throw error;
-    }
-  }
-
-  async fetchServiceListings(): Promise<ServiceListing[]> {
-    try {
-      const snapshot = await getDocs(collection(db, 'service_listings'));
-      return snapshot.docs.map(d => d.data() as ServiceListing);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'service_listings');
-      throw error;
-    }
-  }
-
-  // Runner Applications
-  async submitRunnerApplication(app: any): Promise<void> {
-    try {
-      await addDoc(collection(db, 'runner_applications'), { ...app, createdAt: Date.now(), status: 'pending' });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'runner_applications');
-    }
-  }
-
-  async fetchRunnerApplications(): Promise<RunnerApplication[]> {
-    try {
-      const snapshot = await getDocs(collection(db, 'runner_applications'));
-      return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as RunnerApplication));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'runner_applications');
-      throw error;
-    }
-  }
-
-  // Stats
-  async getAppStats(): Promise<any> {
-    try {
-      const users = await getDocs(collection(db, 'public_users'));
-      const errands = await getDocs(collection(db, 'errands'));
-      return {
-        totalUsers: users.size,
-        totalErrands: errands.size,
-        completedErrands: errands.docs.filter(d => d.data().status === ErrandStatus.COMPLETED).length
+  acceptBid: async (errandId: string, runnerId: string, runnerName: string, price: number, eta: string) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index] = {
+        ...errands[index],
+        status: ErrandStatus.ASSIGNED,
+        runnerId,
+        runnerName,
+        acceptedPrice: price,
+        eta,
+        assignedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'stats');
-      throw error;
+      saveLocal(KEYS.ERRANDS, errands);
     }
-  }
+  },
 
-  // Nearby Runners
-  async getNearbyRunners(): Promise<User[]> {
-    try {
-      const q = query(collection(db, 'public_users'), where('role', '==', UserRole.RUNNER), where('isOnline', '==', true));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(d => ({ id: d.id, ...d.data() as User }));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'public_users');
-      throw error;
+  placeBid: async (errandId: string, runnerId: string, runnerName: string, price: number, eta: string) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      const bids = errands[index].bids || [];
+      bids.push({ runnerId, runnerName, price, eta, createdAt: new Date().toISOString() });
+      errands[index].bids = bids;
+      errands[index].status = ErrandStatus.BIDDING;
+      errands[index].updatedAt = new Date().toISOString();
+      saveLocal(KEYS.ERRANDS, errands);
     }
-  }
+  },
 
-  async respondToPriceRequest(errandId: string, requestId: string, status: 'approved' | 'rejected'): Promise<void> {
-    const errand = await this.fetchErrandById(errandId);
-    if (errand && errand.priceRequests) {
-      const updatedRequests = errand.priceRequests.map(r => r.id === requestId ? { ...r, status } : r);
-      await this.updateErrand(errandId, { priceRequests: updatedRequests });
+  sendMessage: async (errandId: string, senderId: string, senderName: string, text: string) => {
+    // Errand chat is usually separate or embedded
+    console.log('Mock send message', errandId, senderId, senderName, text);
+  },
+
+  requestReassignment: async (errandId: string, reason: string) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index].reassignmentRequested = true;
+      errands[index].reassignmentReason = reason;
+      errands[index].updatedAt = new Date().toISOString();
+      saveLocal(KEYS.ERRANDS, errands);
     }
-  }
+  },
 
-  async addPropertyListing(errandId: string, listing: PropertyListing): Promise<void> {
-    await updateDoc(doc(db, 'errands', errandId), {
-      propertyListings: arrayUnion({ ...listing, id: Math.random().toString(36).substring(7), createdAt: Date.now() })
-    });
-  }
+  reassignErrand: async (errandId: string, reason: string) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index] = {
+        ...errands[index],
+        status: ErrandStatus.PENDING,
+        runnerId: null,
+        runnerName: null,
+        reassignmentRequested: false,
+        reassignReason: reason,
+        updatedAt: new Date().toISOString()
+      };
+      saveLocal(KEYS.ERRANDS, errands);
+    }
+  },
 
-  async submitOverdueReason(errandId: string, reason: string): Promise<void> {
-    await this.updateErrand(errandId, { overdueReason: reason, overdueReasonStatus: 'pending', overdueReasonSubmittedAt: Date.now() });
-  }
+  updateErrand: async (errandId: string, updates: any) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index] = { ...errands[index], ...updates, updatedAt: new Date().toISOString() };
+      saveLocal(KEYS.ERRANDS, errands);
+    }
+  },
 
-  async sendPriceRequest(errandId: string, itemName: string, originalPrice: number, newPrice: number): Promise<void> {
-    const request: PriceRequest = {
-      id: Math.random().toString(36).substring(7),
-      itemName, originalPrice, newPrice,
+  cancelErrand: async (errandId: string) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index].status = ErrandStatus.CANCELLED;
+      errands[index].updatedAt = new Date().toISOString();
+      saveLocal(KEYS.ERRANDS, errands);
+    }
+  },
+
+  sendPriceRequest: async (errandId: string, itemName: string, originalPrice: number, newPrice: number) => {
+    console.log('Mock price request', errandId, itemName, originalPrice, newPrice);
+  },
+
+  toggleFavoriteRunner: async (userId: string, runnerId: string) => {
+    const users = getLocal(KEYS.USERS, []);
+    const index = users.findIndex((u: User) => u.id === userId);
+    if (index !== -1) {
+      const favorites = users[index].favoriteRunners || [];
+      const newFavorites = favorites.includes(runnerId)
+        ? favorites.filter((id: string) => id !== runnerId)
+        : [...favorites, runnerId];
+      users[index].favoriteRunners = newFavorites;
+      saveLocal(KEYS.USERS, users);
+      const currentUser = getLocal(KEYS.CURRENT_USER, null);
+      if (currentUser && currentUser.id === userId) {
+        saveLocal(KEYS.CURRENT_USER, users[index]);
+      }
+    }
+  },
+
+  submitOverdueReason: async (errandId: string, reason: string) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index].overdueReason = reason;
+      errands[index].updatedAt = new Date().toISOString();
+      saveLocal(KEYS.ERRANDS, errands);
+    }
+  },
+
+  rejectReassignment: async (errandId: string) => {
+    const errands = getLocal(KEYS.ERRANDS, []);
+    const index = errands.findIndex((e: any) => e.id === errandId);
+    if (index !== -1) {
+      errands[index].reassignmentRequested = false;
+      errands[index].updatedAt = new Date().toISOString();
+      saveLocal(KEYS.ERRANDS, errands);
+    }
+  },
+
+  approveReassignment: async (errandId: string) => {
+    await firebaseService.reassignErrand(errandId, 'Approved by admin');
+  },
+
+  respondToPriceRequest: async (errandId: string, requestId: string, answer: string) => {
+    console.log('Mock respond to price request', errandId, requestId, answer);
+  },
+
+  addPropertyListing: async (errandId: string, listing: any) => {
+    console.log('Mock add property listing', errandId, listing);
+  },
+
+  submitRunnerApplication: async (application: any) => {
+    const apps = getLocal(KEYS.RUNNER_APPLICATIONS, []);
+    apps.push({
+      ...application,
+      id: Math.random().toString(36).substr(2, 9),
       status: 'pending',
-      timestamp: Date.now()
+      createdAt: new Date().toISOString()
+    });
+    saveLocal(KEYS.RUNNER_APPLICATIONS, apps);
+  },
+
+  updateRunnerApplication: async (appId: string, status: string) => {
+    const apps = getLocal(KEYS.RUNNER_APPLICATIONS, []);
+    const index = apps.findIndex((a: any) => a.id === appId);
+    if (index !== -1) {
+      apps[index].status = status;
+      apps[index].updatedAt = new Date().toISOString();
+      saveLocal(KEYS.RUNNER_APPLICATIONS, apps);
+    }
+  }
+};
+
+export const cloudinaryService = {
+  uploadImage: async (file: File | string, folder?: string, tags?: string): Promise<string> => {
+    await delay(1000);
+    return "https://picsum.photos/seed/" + Math.random() + "/800/600";
+  },
+  uploadFile: async (file: File | string, type?: string, folder?: string): Promise<string> => {
+    return cloudinaryService.uploadImage(file, folder);
+  }
+};
+
+export const geminiService = {
+  parseErrandDescription: async (description: string) => {
+    await delay(1000);
+    return {
+      title: description.slice(0, 20),
+      category: "General",
+      location: "Nairobi",
+      budget: 500
     };
-    await updateDoc(doc(db, 'errands', errandId), {
-      priceRequests: arrayUnion(request)
-    });
+  },
+  extractReceiptTotal: async (imageUrl: string): Promise<{ total: number } | null> => {
+    await delay(1000);
+    return { total: Math.floor(Math.random() * 2000) + 500 };
   }
+};
 
-  async addErrandProof(errandId: string, url: string, label: string): Promise<void> {
-    const proof: ErrandProof = { url, label, timestamp: Date.now() };
-    await updateDoc(doc(db, 'errands', errandId), {
-      proofs: arrayUnion(proof)
-    });
-  }
+export const calculateDistance = (p1: { lat: number, lng: number }, p2: { lat: number, lng: number }) => {
+  const R = 6371; // km
+  const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+  const dLng = (p2.lng - p1.lng) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
 
-  async updateErrandReceiptData(errandId: string, total: number, serviceFee: number): Promise<void> {
-    await this.updateErrand(errandId, { receiptTotal: total, receiptServiceFee: serviceFee });
-  }
+export const formatFirebaseError = (err: any) => {
+  return err.message || "An error occurred";
+};
 
-  async updateMicroStep(errandId: string, idx: number, completed: boolean): Promise<void> {
-    const errand = await this.fetchErrandById(errandId);
-    if (errand && errand.microSteps) {
-      const updated = [...errand.microSteps];
-      updated[idx] = { ...updated[idx], completed, timestamp: Date.now() };
-      await this.updateErrand(errandId, { microSteps: updated });
-    }
-  }
-
-  async submitForReview(errandId: string, comments: string, photo: string): Promise<void> {
-    try {
-      await this.updateErrand(errandId, {
-        status: ErrandStatus.VERIFYING,
-        runnerComments: comments,
-        completionPhoto: photo,
-        submittedForReviewAt: Date.now()
-      });
-
-      // Notify requester
-      const errand = await this.fetchErrandById(errandId);
-      if (errand && errand.requesterId) {
-        const requester = await this.fetchUserById(errand.requesterId);
-        if (requester && requester.phone) {
-          const message = `Dear ${requester.name}, the runner has submitted errand "${errand.title}" for your review. Please check and complete the task.`;
-          await fetch('/api/notifications/sms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipient: requester.phone, message })
-          }).catch(e => console.error("SMS failed", e));
-        }
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
-    }
-  }
-
-  async completeErrand(errandId: string, signature: string, rating: number): Promise<void> {
-    try {
-      const response = await fetch('/api/errands/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ errandId, signature, rating })
-      });
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to complete errand');
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `errands/${errandId}`);
-    }
-  }
-
-  async toggleFavoriteRunner(userId: string, runnerId: string): Promise<void> {
-    const user = await this.getCurrentUser();
-    if (user) {
-      const isFav = user.favoriteRunnerIds?.includes(runnerId);
-      await updateDoc(doc(db, 'users', userId), {
-        favoriteRunnerIds: isFav ? arrayRemove(runnerId) : arrayUnion(runnerId)
-      });
-    }
-  }
-
-  async requestReassignment(errandId: string, reason: string): Promise<void> {
-    await this.updateErrand(errandId, { reassignmentRequested: true, reassignReason: reason });
-  }
-
-  async approveReassignment(errandId: string): Promise<void> {
-    await this.updateErrand(errandId, { 
-      runnerId: null, 
-      status: ErrandStatus.PENDING, 
-      reassignmentRequested: false,
-      reassignedAt: Date.now()
-    });
-  }
-
-  async rejectReassignment(errandId: string): Promise<void> {
-    await this.updateErrand(errandId, { reassignmentRequested: false });
-  }
-
-  async markSupportChatAsRead(userId: string, isAdmin: boolean): Promise<void> {
-    await updateDoc(doc(db, 'support_chats', userId), {
-      [isAdmin ? 'unreadByAdmin' : 'unreadByUser']: false
-    });
-  }
-
-  subscribeToAllSupportChats(callback: (chats: any[]) => void) {
-    const q = query(collection(db, 'support_chats'), orderBy('lastTimestamp', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      callback(snapshot.docs.map(d => d.data()));
-    });
-  }
-
-  async updateRunnerApplicationStatus(appId: string, userId: string, status: 'approved' | 'rejected', category?: ErrandCategory): Promise<void> {
-    await updateDoc(doc(db, 'runner_applications', appId), { status });
-    if (status === 'approved' && category) {
-      await this.adminUpdateUser(userId, { role: UserRole.RUNNER, runnerCategory: category, isVerified: true });
-    }
-  }
-
-  async addFeaturedService(service: any): Promise<void> {
-    await addDoc(collection(db, 'featured_services'), { ...service, createdAt: Date.now() });
-  }
-
-  async deleteFeaturedService(id: string): Promise<void> {
-    await deleteDoc(doc(db, 'featured_services', id));
-  }
-
-  async addServiceListing(listing: any): Promise<void> {
-    await addDoc(collection(db, 'service_listings'), { ...listing, createdAt: Date.now() });
-  }
-
-  async deleteServiceListing(id: string): Promise<void> {
-    await deleteDoc(doc(db, 'service_listings', id));
-  }
-
-  async fetchStaleErrands(beforeTimestamp: number): Promise<Errand[]> {
-    const q = query(collection(db, 'errands'), where('status', '==', ErrandStatus.PENDING), where('createdAt', '<', beforeTimestamp));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => d.data() as Errand);
-  }
-
-  async testConnection() {
-    try {
-      await getDocFromServer(doc(db, 'test', 'connection'));
-    } catch (error) {
-      if(error instanceof Error && error.message.includes('the client is offline')) {
-        console.error("Please check your Firebase configuration. ");
-      }
-    }
-  }
-}
-
-export const firebaseService = new FirebaseService();
-firebaseService.testConnection();
+export const formatPhoneDisplay = (phone: string) => phone;
+export const normalizePhone = (phone: string) => phone;

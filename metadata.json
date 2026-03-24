@@ -1,8 +1,5 @@
 {
-  "name": "errands",
-  "description": "A comprehensive errands-on-demand platform where requesters can post tasks and runners can accept and complete them. Features real-time status updates and role-based views.",
-  "requestFramePermissions": [
-    "geolocation",
-    "camera"
-  ]
+  "name": "ErrandRunner",
+  "description": "A comprehensive errand-running platform for local tasks, laundry, and more.",
+  "requestFramePermissions": ["geolocation", "camera"]
 }
