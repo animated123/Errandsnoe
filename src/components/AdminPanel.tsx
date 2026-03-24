@@ -74,6 +74,31 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, [activeTab]);
 
+  if (user.role !== UserRole.ADMIN) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-[2.5rem] p-10 shadow-xl shadow-slate-200 text-center space-y-6">
+          <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto">
+            <ShieldAlert size={40} />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black text-slate-900">Unauthorized Access</h2>
+            <p className="text-slate-500 leading-relaxed">
+              You do not have the required permissions to access the administration panel. 
+              Please contact the system administrator if you believe this is an error.
+            </p>
+          </div>
+          <button 
+            onClick={() => window.location.href = '/'}
+            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-slate-800 transition-colors"
+          >
+            Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const handleApproveApplication = async (app: RunnerApplication) => {
     if (!confirm(`Approve ${app.fullName} as a runner?`)) return;
     try {

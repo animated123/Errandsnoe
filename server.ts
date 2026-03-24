@@ -12,10 +12,30 @@ async function startServer() {
   app.use(express.json());
 
   // Cloudinary Configuration
-  if (process.env.CLOUDINARY_URL) {
-    cloudinary.config({
-      cloudinary_url: process.env.CLOUDINARY_URL
-    });
+  const rawCloudinaryUrl = process.env.CLOUDINARY_URL;
+  if (rawCloudinaryUrl) {
+    // Trim and remove any accidental quotes
+    let trimmedUrl = rawCloudinaryUrl.trim().replace(/^['"]|['"]$/g, '');
+    
+    // If user accidentally included the variable name in the value
+    if (trimmedUrl.startsWith('CLOUDINARY_URL=')) {
+      trimmedUrl = trimmedUrl.replace('CLOUDINARY_URL=', '').trim();
+    }
+    
+    // Remove angle brackets if user literally pasted them from the documentation
+    trimmedUrl = trimmedUrl.replace(/[<>]/g, '');
+    
+    if (trimmedUrl.startsWith('cloudinary://')) {
+      try {
+        cloudinary.config({
+          cloudinary_url: trimmedUrl
+        });
+      } catch (error) {
+        console.error("Cloudinary configuration error:", error);
+      }
+    } else {
+      console.warn("CLOUDINARY_URL does not start with 'cloudinary://'. Skipping configuration.");
+    }
   }
 
   const upload = multer({ storage: multer.memoryStorage() });
@@ -24,6 +44,12 @@ async function startServer() {
   app.post("/api/upload", upload.single('file'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    if (!process.env.CLOUDINARY_URL) {
+      console.warn("CLOUDINARY_URL is not configured, using mock for development.");
+      // In development, we can return a mock URL if not configured
+      return res.json({ url: "https://picsum.photos/seed/" + Math.random() + "/800/600" });
     }
 
     try {
