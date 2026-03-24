@@ -139,18 +139,16 @@ service cloud.firestore {
     }
 
     match /errands/{id} {
-      // Allow public read for now since Anonymous Auth might be disabled
-      allow read: if true; 
-      allow create: if true;
-      allow update: if true;
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
       allow delete: if isAdmin();
     }
 
     match /notifications/{id} {
-      // Allow public read for now since Anonymous Auth might be disabled
-      allow read: if true;
-      allow create: if true;
-      allow update: if true;
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
     }
 

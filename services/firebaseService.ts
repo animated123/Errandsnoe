@@ -23,13 +23,7 @@ import { signInAnonymously } from 'firebase/auth';
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Silent Firebase Auth login to satisfy Firestore rules
-signInAnonymously(auth).catch(err => {
-  if (err.code === 'auth/admin-restricted-operation') {
-    console.warn("Firebase Anonymous Auth is disabled. Please enable it in the Firebase Console (Authentication > Sign-in method). Firestore rules may block access until enabled.");
-  } else {
-    console.error("Firebase Auth error:", err);
-  }
-});
+signInAnonymously(auth).catch(err => console.error("Firebase Auth error:", err));
 
 // LocalStorage keys
 const KEYS = {
