@@ -1,0 +1,155 @@
+{
+  "entities": {
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Global application settings",
+      "type": "object",
+      "properties": {
+        "appName": { "type": "string" },
+        "primaryColor": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "iconUrl": { "type": "string" },
+        "platformFee": { "type": "number" },
+        "minErrandPrice": { "type": "number" },
+        "maintenanceMode": { "type": "boolean" }
+      }
+    },
+    "FeaturedService": {
+      "title": "FeaturedService",
+      "description": "A service featured on the home page",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" }
+      }
+    },
+    "ServiceListing": {
+      "title": "ServiceListing",
+      "description": "A standard service listing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "Errand": {
+      "title": "Errand",
+      "description": "A task or errand posted by a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "requesterId": { "type": "string" },
+        "requesterName": { "type": "string" },
+        "runnerId": { "type": "string" },
+        "runnerName": { "type": "string" },
+        "status": { "type": "string" },
+        "price": { "type": "number" },
+        "acceptedPrice": { "type": "number" },
+        "category": { "type": "string" },
+        "location": { "type": "object" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "A notification for a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "RunnerApplication": {
+      "title": "RunnerApplication",
+      "description": "An application to become a runner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "nationalId": { "type": "string" },
+        "phone": { "type": "string" },
+        "categoryApplied": { "type": "string" },
+        "idFrontUrl": { "type": "string" },
+        "idBackUrl": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    },
+    "SupportChat": {
+      "title": "SupportChat",
+      "description": "A support chat session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastMessageAt": { "type": "number" },
+        "unreadByAdmin": { "type": "boolean" },
+        "unreadByUser": { "type": "boolean" }
+      }
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "A message in a support chat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/settings/global": {
+      "schema": "AppSettings",
+      "description": "Global application settings"
+    },
+    "/featured_services/{id}": {
+      "schema": "FeaturedService",
+      "description": "Featured services"
+    },
+    "/service_listings/{id}": {
+      "schema": "ServiceListing",
+      "description": "Service listings"
+    },
+    "/errands/{id}": {
+      "schema": "Errand",
+      "description": "Errands posted by users"
+    },
+    "/notifications/{id}": {
+      "schema": "AppNotification",
+      "description": "User notifications"
+    },
+    "/runner_applications/{id}": {
+      "schema": "RunnerApplication",
+      "description": "Runner applications"
+    },
+    "/support_chats/{userId}": {
+      "schema": "SupportChat",
+      "description": "Support chat sessions"
+    },
+    "/support_chats/{userId}/messages/{messageId}": {
+      "schema": "SupportMessage",
+      "description": "Messages in a support chat"
+    }
+  }
+}

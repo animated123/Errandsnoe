@@ -32,7 +32,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   userRoleFilter, 
   setUserRoleFilter 
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'users' | 'services' | 'featured' | 'system' | 'branding' | 'support'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'users' | 'services' | 'featured' | 'system' | 'branding' | 'support' | 'sms'>('overview');
   const [applications, setApplications] = useState<RunnerApplication[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [services, setServices] = useState<ServiceListing[]>([]);
@@ -130,6 +130,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           { id: 'users', label: 'User Directory', icon: <Settings size={14} />, count: users.length },
           { id: 'services', label: 'Service List', icon: <ShoppingBag size={14} />, count: services.length },
           { id: 'featured', label: 'Featured', icon: <Plus size={14} />, count: featured.length },
+          { id: 'sms', label: 'SMS Config', icon: <MessageSquare size={14} /> },
           { id: 'branding', label: 'Branding', icon: <ImageIcon size={14} /> }
         ].map(tab => (
           <button 
@@ -279,6 +280,186 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
               <button onClick={handleUpdateSettings} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-indigo-100 flex items-center justify-center gap-3">
                 <Save size={18} /> Save System Configuration
               </button>
+            </div>
+          )}
+
+          {activeTab === 'services' && (
+            <div className="p-10 space-y-8">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">Service Listings</h3>
+                <button 
+                  onClick={async () => {
+                    const title = prompt("Service Title:");
+                    const price = prompt("Price (Ksh):");
+                    const category = prompt("Category:");
+                    const description = prompt("Description:");
+                    if (title && price && category) {
+                      await firebaseService.addServiceListing({ 
+                        title, 
+                        price: parseFloat(price), 
+                        category, 
+                        description: description || '' 
+                      });
+                      // Refresh data
+                      const allServices = await firebaseService.fetchServiceListings();
+                      setServices(allServices);
+                    }
+                  }}
+                  className="px-6 py-3 bg-black text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2"
+                >
+                  <Plus size={14} /> Add Service
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {services.map(s => (
+                  <div key={s.id} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 relative group">
+                    <button 
+                      onClick={async () => {
+                        if (confirm("Delete this service?")) {
+                          await firebaseService.deleteServiceListing(s.id);
+                          setServices(services.filter(item => item.id !== s.id));
+                        }
+                      }}
+                      className="absolute top-4 right-4 p-2 bg-white text-red-500 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                    <h4 className="text-lg font-black text-slate-900">{s.title}</h4>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{s.category}</p>
+                    <p className="text-2xl font-black text-indigo-600 mt-4">Ksh {s.price}</p>
+                    <p className="text-xs text-slate-500 mt-2 line-clamp-2">{s.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'featured' && (
+            <div className="p-10 space-y-8">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">Featured Services</h3>
+                <button 
+                  onClick={async () => {
+                    const title = prompt("Service Title:");
+                    const price = prompt("Price (Ksh):");
+                    const category = prompt("Category:");
+                    const description = prompt("Description:");
+                    if (title && price && category) {
+                      await firebaseService.addFeaturedService({ 
+                        title, 
+                        price: parseFloat(price), 
+                        category, 
+                        description: description || '',
+                        imageUrl: 'https://picsum.photos/seed/service/800/600'
+                      });
+                      // Refresh data
+                      const allFeatured = await firebaseService.fetchFeaturedServices();
+                      setFeatured(allFeatured);
+                    }
+                  }}
+                  className="px-6 py-3 bg-black text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2"
+                >
+                  <Plus size={14} /> Add Featured
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {featured.map((f, idx) => (
+                  <div key={f.id} className="bg-slate-50 rounded-[2.5rem] border border-slate-100 overflow-hidden relative group">
+                    <div className="aspect-video relative">
+                      <img src={f.imageUrl} className="w-full h-full object-cover" alt={f.title} />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <label className="p-3 bg-white text-slate-900 rounded-2xl cursor-pointer hover:scale-110 transition-transform">
+                          <Upload size={18} />
+                          <input type="file" className="hidden" onChange={async e => {
+                            if (e.target.files?.[0]) {
+                              const url = await cloudinaryService.uploadImage(e.target.files[0]);
+                              const updated = [...featured];
+                              updated[idx].imageUrl = url;
+                              // Update in Firestore
+                              await firebaseService.updateFeaturedService(f.id, { imageUrl: url });
+                              setFeatured(updated);
+                            }
+                          }} />
+                        </label>
+                        <button 
+                          onClick={async () => {
+                            if (confirm("Delete this featured service?")) {
+                              await firebaseService.deleteFeaturedService(f.id);
+                              setFeatured(featured.filter(item => item.id !== f.id));
+                            }
+                          }}
+                          className="p-3 bg-red-500 text-white rounded-2xl hover:scale-110 transition-transform"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <h4 className="text-lg font-black text-slate-900">{f.title}</h4>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{f.category}</p>
+                      <p className="text-2xl font-black text-indigo-600 mt-4">Ksh {f.price}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'sms' && (
+            <div className="p-10 space-y-10 max-w-2xl">
+              <div className="space-y-6">
+                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">Talksasa SMS Integration</h3>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-micro text-slate-400 ml-1">API Token</label>
+                    <input 
+                      type="password" 
+                      placeholder="Enter Talksasa API Token"
+                      className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-base outline-none" 
+                      onChange={(e) => {
+                        // This would ideally be saved to a secure backend setting
+                        // For now, we'll just show a test interface
+                      }}
+                    />
+                    <p className="text-[10px] text-slate-400 font-bold italic">Note: Token should be set in environment variables for security.</p>
+                  </div>
+                  
+                  <div className="bg-indigo-50 p-6 rounded-[2rem] border border-indigo-100 space-y-4">
+                    <h4 className="text-sm font-black text-indigo-900">Test SMS Connection</h4>
+                    <div className="space-y-3">
+                      <input 
+                        id="test-phone"
+                        type="text" 
+                        placeholder="Recipient Phone (e.g. 254...)" 
+                        className="w-full p-3 bg-white rounded-xl text-xs font-bold outline-none"
+                      />
+                      <textarea 
+                        id="test-message"
+                        placeholder="Test Message Content" 
+                        className="w-full p-3 bg-white rounded-xl text-xs font-bold outline-none h-20 resize-none"
+                      />
+                      <button 
+                        onClick={async () => {
+                          const phone = (document.getElementById('test-phone') as HTMLInputElement).value;
+                          const msg = (document.getElementById('test-message') as HTMLTextAreaElement).value;
+                          if (!phone || !msg) return alert("Phone and message required");
+                          
+                          const { smsService } = await import('../../services/firebaseService');
+                          const res = await smsService.sendSMS(phone, msg);
+                          if (res.success) {
+                            alert("SMS Sent Successfully!");
+                          } else {
+                            alert("Failed to send SMS: " + JSON.stringify(res.error));
+                          }
+                        }}
+                        className="w-full py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100"
+                      >
+                        Send Test SMS
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

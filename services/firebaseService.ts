@@ -1,7 +1,35 @@
 import { User, UserRole, Errand, ErrandStatus, AppNotification, AppSettings, FeaturedService, ServiceListing, RunnerApplication } from '../types';
+import { db, auth } from '../src/lib/firebase';
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  setDoc, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  onSnapshot,
+  serverTimestamp,
+  increment,
+  limit
+} from 'firebase/firestore';
+import { signInAnonymously } from 'firebase/auth';
 
 // Helper to simulate network delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Silent Firebase Auth login to satisfy Firestore rules
+signInAnonymously(auth).catch(err => {
+  if (err.code === 'auth/admin-restricted-operation') {
+    console.warn("Firebase Anonymous Auth is disabled. Please enable it in the Firebase Console (Authentication > Sign-in method). Firestore rules may block access until enabled.");
+  } else {
+    console.error("Firebase Auth error:", err);
+  }
+});
 
 // LocalStorage keys
 const KEYS = {
@@ -50,10 +78,41 @@ const saveLocal = (key: string, data: any) => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
+const INITIAL_USERS: User[] = [
+  {
+    id: 'admin-1',
+    name: 'Admin User',
+    email: 'ngugimaina4@gmail.com',
+    phone: '254700000000',
+    role: UserRole.ADMIN,
+    isAdmin: true,
+    loyaltyPoints: 0,
+    hoursSaved: 0,
+    loyaltyLevel: 'Platinum' as any,
+    createdAt: new Date().toISOString() as any
+  }
+];
+
 // Initialize data if not present
 if (!localStorage.getItem(KEYS.SETTINGS)) saveLocal(KEYS.SETTINGS, INITIAL_SETTINGS);
 if (!localStorage.getItem(KEYS.FEATURED_SERVICES)) saveLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
 if (!localStorage.getItem(KEYS.SERVICE_LISTINGS)) saveLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
+
+// Ensure admin user exists
+const currentUsers = getLocal(KEYS.USERS, []);
+if (!currentUsers.find((u: User) => u.email === 'ngugimaina4@gmail.com')) {
+  currentUsers.push(INITIAL_USERS[0]);
+  saveLocal(KEYS.USERS, currentUsers);
+}
+if (!currentUsers.find((u: User) => u.email === 'Errands@codexict.co.ke')) {
+  currentUsers.push({
+    ...INITIAL_USERS[0],
+    id: 'admin-2',
+    name: 'Super Admin',
+    email: 'Errands@codexict.co.ke'
+  });
+  saveLocal(KEYS.USERS, currentUsers);
+}
 
 export const firebaseService = {
   subscribeToAuth: (callback: (user: User | null) => void) => {
@@ -82,12 +141,15 @@ export const firebaseService = {
     const users = getLocal(KEYS.USERS, []);
     if (users.find((u: User) => u.email === email)) throw new Error('Email already in use');
     
+    const isSuperAdmin = email === 'Errands@codexict.co.ke' || email === 'ngugimaina4@gmail.com';
+    
     const newUser: User = {
       id: Math.random().toString(36).substr(2, 9),
       name,
       email,
       phone,
-      role: UserRole.REQUESTER,
+      role: isSuperAdmin ? UserRole.ADMIN : UserRole.REQUESTER,
+      isAdmin: isSuperAdmin,
       loyaltyPoints: 0,
       hoursSaved: 0,
       loyaltyLevel: 'Bronze' as any,
@@ -120,19 +182,24 @@ export const firebaseService = {
   },
 
   subscribeToSettings: (callback: (settings: AppSettings) => void) => {
-    const checkSettings = () => {
-      callback(getLocal(KEYS.SETTINGS, INITIAL_SETTINGS));
-    };
-    checkSettings();
-    window.addEventListener('storage', checkSettings);
-    return () => window.removeEventListener('storage', checkSettings);
+    return onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
+      if (snapshot.exists()) {
+        callback(snapshot.data() as AppSettings);
+      } else {
+        callback(INITIAL_SETTINGS);
+      }
+    });
   },
 
   getAppStats: async () => {
     await delay(300);
-    return getLocal(KEYS.STATS, {
-      totalUsers: getLocal(KEYS.USERS, []).length,
-      totalTasks: getLocal(KEYS.ERRANDS, []).length,
+    const users = getLocal(KEYS.USERS, []);
+    const errandsSnapshot = await getDocs(collection(db, 'errands'));
+    const errands = errandsSnapshot.docs.map(d => d.data() as Errand);
+    
+    return {
+      totalUsers: users.length,
+      totalTasks: errands.length,
       onlineUsers: Math.floor(Math.random() * 10),
       avgDistance: 5.2,
       avgCompletionTime: 45,
@@ -155,69 +222,73 @@ export const firebaseService = {
       ],
       topRunners: [],
       topRequesters: []
-    });
+    };
   },
 
   fetchFeaturedServices: async (): Promise<FeaturedService[]> => {
-    await delay(300);
-    return getLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
+    const snapshot = await getDocs(collection(db, 'featured_services'));
+    if (snapshot.empty) return INITIAL_FEATURED_SERVICES;
+    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as FeaturedService));
   },
 
   fetchServiceListings: async (): Promise<ServiceListing[]> => {
-    await delay(300);
-    return getLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
+    const snapshot = await getDocs(collection(db, 'service_listings'));
+    if (snapshot.empty) return INITIAL_SERVICE_LISTINGS;
+    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as ServiceListing));
   },
 
   createErrand: async (data: any) => {
-    await delay(500);
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const newErrand = {
+    const docRef = await addDoc(collection(db, 'errands'), {
       ...data,
-      id: Math.random().toString(36).substr(2, 9),
       status: ErrandStatus.PENDING,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    };
-    errands.push(newErrand);
-    saveLocal(KEYS.ERRANDS, errands);
-    return { id: newErrand.id };
+    });
+    
+    // Notify requester via SMS
+    const users = getLocal(KEYS.USERS, []);
+    const requester = users.find((u: User) => u.id === data.requesterId);
+    if (requester && requester.phone) {
+      smsService.sendSMS(requester.phone, `Hi ${requester.name}, your task "${data.title}" is now live on ErrandRunner! We'll notify you when runners start bidding.`);
+    }
+
+    return { id: docRef.id };
   },
 
   subscribeToUserErrands: (userId: string, role: UserRole, callback: (errands: Errand[]) => void) => {
     const field = role === UserRole.RUNNER ? 'runnerId' : 'requesterId';
-    const checkErrands = () => {
-      const errands = getLocal(KEYS.ERRANDS, []);
-      callback(errands.filter((e: any) => e[field] === userId).sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt)));
-    };
-    checkErrands();
-    window.addEventListener('storage', checkErrands);
-    return () => window.removeEventListener('storage', checkErrands);
+    const q = query(collection(db, 'errands'), where(field, '==', userId));
+    return onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand));
+      callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    });
   },
 
   subscribeToAvailableErrands: (callback: (errands: Errand[]) => void) => {
-    const checkErrands = () => {
-      const errands = getLocal(KEYS.ERRANDS, []);
-      callback(errands.filter((e: any) => [ErrandStatus.PENDING, ErrandStatus.BIDDING].includes(e.status)).sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt)));
-    };
-    checkErrands();
-    window.addEventListener('storage', checkErrands);
-    return () => window.removeEventListener('storage', checkErrands);
+    const q = query(
+      collection(db, 'errands'), 
+      where('status', 'in', [ErrandStatus.PENDING, ErrandStatus.BIDDING])
+    );
+    return onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand));
+      callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    });
   },
 
   subscribeToNotifications: (userId: string, callback: (notifs: AppNotification[]) => void) => {
-    const checkNotifs = () => {
-      const notifs = getLocal(KEYS.NOTIFICATIONS, []);
-      callback(notifs.filter((n: any) => n.userId === userId).sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt)));
-    };
-    checkNotifs();
-    window.addEventListener('storage', checkNotifs);
-    return () => window.removeEventListener('storage', checkNotifs);
+    const q = query(collection(db, 'notifications'), where('userId', '==', userId));
+    return onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as AppNotification));
+      callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    });
   },
 
   fetchErrandById: async (id: string): Promise<Errand | null> => {
-    await delay(300);
-    const errands = getLocal(KEYS.ERRANDS, []);
-    return errands.find((e: any) => e.id === id) || null;
+    const docSnap = await getDoc(doc(db, 'errands', id));
+    if (docSnap.exists()) {
+      return { ...docSnap.data(), id: docSnap.id } as Errand;
+    }
+    return null;
   },
 
   getNearbyRunners: async (): Promise<User[]> => {
@@ -227,40 +298,26 @@ export const firebaseService = {
   },
 
   submitForReview: async (errandId: string, comments: string, photo: string) => {
-    await delay(500);
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index] = {
-        ...errands[index],
-        status: ErrandStatus.REVIEW,
-        reviewComments: comments,
-        reviewPhoto: photo,
-        updatedAt: new Date().toISOString()
-      };
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), {
+      status: ErrandStatus.REVIEW,
+      reviewComments: comments,
+      reviewPhoto: photo,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   completeErrand: async (errandId: string, signature: string, rating: number) => {
-    await delay(500);
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index] = {
-        ...errands[index],
-        status: ErrandStatus.COMPLETED,
-        rating,
-        signature,
-        updatedAt: new Date().toISOString()
-      };
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), {
+      status: ErrandStatus.COMPLETED,
+      rating,
+      signature,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   fetchRunnerApplications: async (): Promise<RunnerApplication[]> => {
-    await delay(300);
-    return getLocal(KEYS.RUNNER_APPLICATIONS, []);
+    const snapshot = await getDocs(collection(db, 'runner_applications'));
+    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as RunnerApplication));
   },
 
   fetchAllUsers: async (): Promise<User[]> => {
@@ -287,103 +344,95 @@ export const firebaseService = {
   },
 
   updateRunnerApplicationStatus: async (appId: string, userId: string, status: string, category?: string) => {
-    const apps = getLocal(KEYS.RUNNER_APPLICATIONS, []);
-    const index = apps.findIndex((a: any) => a.id === appId);
-    if (index !== -1) {
-      apps[index] = { ...apps[index], status, categoryApplied: category };
-      saveLocal(KEYS.RUNNER_APPLICATIONS, apps);
-      if (status === 'approved') {
-        await firebaseService.updateUserSettings(userId, { role: UserRole.RUNNER });
-      }
+    await updateDoc(doc(db, 'runner_applications', appId), {
+      status,
+      categoryApplied: category,
+      updatedAt: new Date().toISOString()
+    });
+    if (status === 'approved') {
+      await firebaseService.updateUserSettings(userId, { role: UserRole.RUNNER });
     }
   },
 
   saveAppSettings: async (settings: Partial<AppSettings>) => {
-    const current = getLocal(KEYS.SETTINGS, INITIAL_SETTINGS);
-    saveLocal(KEYS.SETTINGS, { ...current, ...settings });
+    await setDoc(doc(db, 'settings', 'global'), settings, { merge: true });
   },
 
   subscribeToAllSupportChats: (callback: (chats: any[]) => void) => {
-    const checkChats = () => {
-      callback(getLocal(KEYS.SUPPORT_CHATS, []));
-    };
-    checkChats();
-    window.addEventListener('storage', checkChats);
-    return () => window.removeEventListener('storage', checkChats);
+    return onSnapshot(collection(db, 'support_chats'), (snapshot) => {
+      callback(snapshot.docs.map(d => ({ ...d.data(), id: d.id })));
+    });
   },
 
   subscribeToSupportChat: (userId: string, callback: (data: any) => void) => {
-    const checkChat = () => {
-      const chats = getLocal(KEYS.SUPPORT_CHATS, []);
-      const chat = chats.find((c: any) => c.userId === userId);
-      callback(chat || { messages: [] });
-    };
-    checkChat();
-    window.addEventListener('storage', checkChat);
-    return () => window.removeEventListener('storage', checkChat);
+    return onSnapshot(doc(db, 'support_chats', userId), (snapshot) => {
+      if (snapshot.exists()) {
+        const chatData = snapshot.data();
+        const messagesQuery = query(collection(db, 'support_chats', userId, 'messages'), orderBy('createdAt', 'asc'));
+        onSnapshot(messagesQuery, (msgSnapshot) => {
+          callback({
+            ...chatData,
+            messages: msgSnapshot.docs.map(d => ({ ...d.data(), id: d.id }))
+          });
+        });
+      } else {
+        callback({ messages: [] });
+      }
+    });
   },
 
   markSupportChatAsRead: async (userId: string, isAdmin: boolean) => {
-    const chats = getLocal(KEYS.SUPPORT_CHATS, []);
-    const index = chats.findIndex((c: any) => c.userId === userId);
-    if (index !== -1) {
-      chats[index] = {
-        ...chats[index],
-        [isAdmin ? 'unreadByAdmin' : 'unreadByUser']: false
-      };
-      saveLocal(KEYS.SUPPORT_CHATS, chats);
-    }
+    await updateDoc(doc(db, 'support_chats', userId), {
+      [isAdmin ? 'unreadByAdmin' : 'unreadByUser']: false
+    });
   },
 
   sendSupportMessage: async (userId: string, senderName: string, text: string, isAdmin: boolean) => {
-    const chats = getLocal(KEYS.SUPPORT_CHATS, []);
-    const index = chats.findIndex((c: any) => c.userId === userId);
-    const newMessage = {
-      id: Math.random().toString(36).substr(2, 9),
-      senderId: isAdmin ? 'admin' : userId,
-      senderName,
-      text,
-      createdAt: new Date().toISOString()
-    };
-    if (index !== -1) {
-      chats[index].messages.push(newMessage);
-      chats[index].updatedAt = new Date().toISOString();
-      chats[index].unreadByAdmin = !isAdmin;
-      chats[index].unreadByUser = isAdmin;
-    } else {
-      chats.push({
-        id: Math.random().toString(36).substr(2, 9),
+    const chatRef = doc(db, 'support_chats', userId);
+    const chatSnap = await getDoc(chatRef);
+    
+    if (!chatSnap.exists()) {
+      await setDoc(chatRef, {
         userId,
         userName: senderName,
-        messages: [newMessage],
+        updatedAt: new Date().toISOString(),
+        unreadByAdmin: !isAdmin,
+        unreadByUser: isAdmin
+      });
+    } else {
+      await updateDoc(chatRef, {
         updatedAt: new Date().toISOString(),
         unreadByAdmin: !isAdmin,
         unreadByUser: isAdmin
       });
     }
-    saveLocal(KEYS.SUPPORT_CHATS, chats);
+
+    await addDoc(collection(db, 'support_chats', userId, 'messages'), {
+      senderId: isAdmin ? 'admin' : userId,
+      senderName,
+      text,
+      createdAt: Date.now()
+    });
   },
 
   addFeaturedService: async (service: any) => {
-    const services = getLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
-    services.push({ ...service, id: Math.random().toString(36).substr(2, 9) });
-    saveLocal(KEYS.FEATURED_SERVICES, services);
+    await addDoc(collection(db, 'featured_services'), service);
+  },
+
+  updateFeaturedService: async (id: string, updates: any) => {
+    await updateDoc(doc(db, 'featured_services', id), updates);
   },
 
   deleteFeaturedService: async (id: string) => {
-    const services = getLocal(KEYS.FEATURED_SERVICES, INITIAL_FEATURED_SERVICES);
-    saveLocal(KEYS.FEATURED_SERVICES, services.filter((s: any) => s.id !== id));
+    await deleteDoc(doc(db, 'featured_services', id));
   },
 
   addServiceListing: async (listing: any) => {
-    const listings = getLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
-    listings.push({ ...listing, id: Math.random().toString(36).substr(2, 9) });
-    saveLocal(KEYS.SERVICE_LISTINGS, listings);
+    await addDoc(collection(db, 'service_listings'), listing);
   },
 
   deleteServiceListing: async (id: string) => {
-    const listings = getLocal(KEYS.SERVICE_LISTINGS, INITIAL_SERVICE_LISTINGS);
-    saveLocal(KEYS.SERVICE_LISTINGS, listings.filter((l: any) => l.id !== id));
+    await deleteDoc(doc(db, 'service_listings', id));
   },
 
   getCurrentUser: async (): Promise<User | null> => {
@@ -391,126 +440,125 @@ export const firebaseService = {
   },
 
   updateMicroStep: async (errandId: string, stepIndex: number, completed: boolean) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      const checklist = errands[index].checklist || [];
+    const errandRef = doc(db, 'errands', errandId);
+    const errandSnap = await getDoc(errandRef);
+    if (errandSnap.exists()) {
+      const checklist = errandSnap.data().checklist || [];
       if (checklist[stepIndex]) {
         checklist[stepIndex].completed = completed;
-        errands[index].checklist = checklist;
-        saveLocal(KEYS.ERRANDS, errands);
+        await updateDoc(errandRef, { checklist });
       }
     }
   },
 
   addErrandProof: async (errandId: string, photoUrl: string, label: string) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      const proofs = errands[index].proofs || [];
+    const errandRef = doc(db, 'errands', errandId);
+    const errandSnap = await getDoc(errandRef);
+    if (errandSnap.exists()) {
+      const proofs = errandSnap.data().proofs || [];
       proofs.push({ url: photoUrl, label, createdAt: new Date().toISOString() });
-      errands[index].proofs = proofs;
-      errands[index].updatedAt = new Date().toISOString();
-      saveLocal(KEYS.ERRANDS, errands);
+      await updateDoc(errandRef, { 
+        proofs,
+        updatedAt: new Date().toISOString()
+      });
     }
   },
 
   updateErrandReceiptData: async (errandId: string, total: number, serviceFee: number) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index].receiptTotal = total;
-      errands[index].serviceFee = serviceFee;
-      errands[index].updatedAt = new Date().toISOString();
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), {
+      receiptTotal: total,
+      serviceFee: serviceFee,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   acceptBid: async (errandId: string, runnerId: string, runnerName: string, price: number, eta: string) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index] = {
-        ...errands[index],
-        status: ErrandStatus.ASSIGNED,
-        runnerId,
-        runnerName,
-        acceptedPrice: price,
-        eta,
-        assignedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      saveLocal(KEYS.ERRANDS, errands);
+    const errandRef = doc(db, 'errands', errandId);
+    await updateDoc(errandRef, {
+      status: ErrandStatus.ASSIGNED,
+      runnerId,
+      runnerName,
+      acceptedPrice: price,
+      eta,
+      assignedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    const errandSnap = await getDoc(errandRef);
+    const errandData = errandSnap.data();
+
+    // Notify runner via SMS
+    const users = getLocal(KEYS.USERS, []);
+    const runner = users.find((u: User) => u.id === runnerId);
+    if (runner && runner.phone) {
+      smsService.sendSMS(runner.phone, `Congratulations ${runner.name}! Your bid for "${errandData?.title}" has been accepted. Log in to start the task.`);
     }
   },
 
   placeBid: async (errandId: string, runnerId: string, runnerName: string, price: number, eta: string) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      const bids = errands[index].bids || [];
+    const errandRef = doc(db, 'errands', errandId);
+    const errandSnap = await getDoc(errandRef);
+    if (errandSnap.exists()) {
+      const bids = errandSnap.data().bids || [];
       bids.push({ runnerId, runnerName, price, eta, createdAt: new Date().toISOString() });
-      errands[index].bids = bids;
-      errands[index].status = ErrandStatus.BIDDING;
-      errands[index].updatedAt = new Date().toISOString();
-      saveLocal(KEYS.ERRANDS, errands);
+      await updateDoc(errandRef, {
+        bids,
+        status: ErrandStatus.BIDDING,
+        updatedAt: new Date().toISOString()
+      });
     }
   },
 
   sendMessage: async (errandId: string, senderId: string, senderName: string, text: string) => {
-    // Errand chat is usually separate or embedded
-    console.log('Mock send message', errandId, senderId, senderName, text);
+    await addDoc(collection(db, 'errands', errandId, 'chat'), {
+      senderId,
+      senderName,
+      text,
+      createdAt: serverTimestamp()
+    });
   },
 
   requestReassignment: async (errandId: string, reason: string) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index].reassignmentRequested = true;
-      errands[index].reassignmentReason = reason;
-      errands[index].updatedAt = new Date().toISOString();
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), {
+      reassignmentRequested: true,
+      reassignmentReason: reason,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   reassignErrand: async (errandId: string, reason: string) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index] = {
-        ...errands[index],
-        status: ErrandStatus.PENDING,
-        runnerId: null,
-        runnerName: null,
-        reassignmentRequested: false,
-        reassignReason: reason,
-        updatedAt: new Date().toISOString()
-      };
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), {
+      status: ErrandStatus.PENDING,
+      runnerId: null,
+      runnerName: null,
+      reassignmentRequested: false,
+      reassignReason: reason,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   updateErrand: async (errandId: string, updates: any) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index] = { ...errands[index], ...updates, updatedAt: new Date().toISOString() };
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), { 
+      ...updates, 
+      updatedAt: new Date().toISOString() 
+    });
   },
 
   cancelErrand: async (errandId: string) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index].status = ErrandStatus.CANCELLED;
-      errands[index].updatedAt = new Date().toISOString();
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), {
+      status: ErrandStatus.CANCELLED,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   sendPriceRequest: async (errandId: string, itemName: string, originalPrice: number, newPrice: number) => {
-    console.log('Mock price request', errandId, itemName, originalPrice, newPrice);
+    await addDoc(collection(db, 'errands', errandId, 'price_requests'), {
+      itemName,
+      originalPrice,
+      newPrice,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    });
   },
 
   toggleFavoriteRunner: async (userId: string, runnerId: string) => {
@@ -531,23 +579,17 @@ export const firebaseService = {
   },
 
   submitOverdueReason: async (errandId: string, reason: string) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index].overdueReason = reason;
-      errands[index].updatedAt = new Date().toISOString();
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), {
+      overdueReason: reason,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   rejectReassignment: async (errandId: string) => {
-    const errands = getLocal(KEYS.ERRANDS, []);
-    const index = errands.findIndex((e: any) => e.id === errandId);
-    if (index !== -1) {
-      errands[index].reassignmentRequested = false;
-      errands[index].updatedAt = new Date().toISOString();
-      saveLocal(KEYS.ERRANDS, errands);
-    }
+    await updateDoc(doc(db, 'errands', errandId), {
+      reassignmentRequested: false,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   approveReassignment: async (errandId: string) => {
@@ -555,32 +597,32 @@ export const firebaseService = {
   },
 
   respondToPriceRequest: async (errandId: string, requestId: string, answer: string) => {
-    console.log('Mock respond to price request', errandId, requestId, answer);
+    await updateDoc(doc(db, 'errands', errandId, 'price_requests', requestId), {
+      status: answer,
+      updatedAt: new Date().toISOString()
+    });
   },
 
   addPropertyListing: async (errandId: string, listing: any) => {
-    console.log('Mock add property listing', errandId, listing);
+    await addDoc(collection(db, 'errands', errandId, 'property_listings'), {
+      ...listing,
+      createdAt: new Date().toISOString()
+    });
   },
 
   submitRunnerApplication: async (application: any) => {
-    const apps = getLocal(KEYS.RUNNER_APPLICATIONS, []);
-    apps.push({
+    await addDoc(collection(db, 'runner_applications'), {
       ...application,
-      id: Math.random().toString(36).substr(2, 9),
       status: 'pending',
       createdAt: new Date().toISOString()
     });
-    saveLocal(KEYS.RUNNER_APPLICATIONS, apps);
   },
 
   updateRunnerApplication: async (appId: string, status: string) => {
-    const apps = getLocal(KEYS.RUNNER_APPLICATIONS, []);
-    const index = apps.findIndex((a: any) => a.id === appId);
-    if (index !== -1) {
-      apps[index].status = status;
-      apps[index].updatedAt = new Date().toISOString();
-      saveLocal(KEYS.RUNNER_APPLICATIONS, apps);
-    }
+    await updateDoc(doc(db, 'runner_applications', appId), {
+      status,
+      updatedAt: new Date().toISOString()
+    });
   }
 };
 
@@ -637,6 +679,32 @@ export const geminiService = {
   extractReceiptTotal: async (imageUrl: string): Promise<{ total: number } | null> => {
     await delay(1000);
     return { total: Math.floor(Math.random() * 2000) + 500 };
+  }
+};
+
+export const smsService = {
+  sendSMS: async (recipient: string, message: string) => {
+    try {
+      const response = await fetch('/api/sms/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ recipient, message }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('SMS sending failed:', error);
+        return { success: false, error };
+      }
+      
+      const data = await response.json();
+      return { success: true, data };
+    } catch (error) {
+      console.error('SMS service error:', error);
+      return { success: false, error };
+    }
   }
 };
 

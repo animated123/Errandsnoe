@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Component } from 'react';
+import { auth, db } from './src/lib/firebase';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { doc, getDocFromServer } from 'firebase/firestore';
 import { 
   Plus, MapPin, DollarSign, Calendar, Briefcase, 
   CheckCircle, Star, Camera, Navigation, Clock, Map as MapIcon, 
@@ -183,6 +186,38 @@ export default function App() {
     marketSection: ''
   });
   const [authForm, setAuthForm] = useState({ name: '', email: '', phone: '', password: '', role: UserRole.REQUESTER });
+
+  useEffect(() => {
+    // Silent Firebase Auth login to satisfy Firestore rules
+    signInAnonymously(auth).catch(err => {
+      if (err.code === 'auth/admin-restricted-operation') {
+        console.warn("Firebase Anonymous Auth is disabled. Please enable it in the Firebase Console (Authentication > Sign-in method). Firestore rules may block access until enabled.");
+      } else {
+        console.error("Firebase Auth error:", err);
+      }
+    });
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("Firebase Auth user:", user.uid);
+      }
+    });
+
+    // Test Firestore connection
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'settings', 'global'));
+        console.log("Firestore connection successful");
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. The client is offline.");
+        }
+      }
+    };
+    testConnection();
+
+    return () => unsubscribeAuth();
+  }, []);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${zoom}%`;
