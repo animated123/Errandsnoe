@@ -5,14 +5,29 @@ service cloud.firestore {
     // Assumed Data Model
     // ===============================================================
     //
-    // This security rules file assumes that Firestore is strictly for 
-    // administrative use. Non-admin users have minimal access.
-    //
     // Collection: users
     // Document ID: {userId}
-    // Fields: role, email, name, etc.
+    // Fields:
+    //   - role: string (required, 'USER' or 'ADMIN')
+    //   - email: string (required, email format)
+    //   - name: string (required)
+    //   - phone: string (optional)
+    //   - phoneVerified: bool (optional)
+    //   - emailVerified: bool (optional)
+    //   - theme: string (optional, 'light' or 'dark')
     //
-    // All other collections: errands, settings, notifications, etc.
+    // Collection: verification_codes
+    // Document ID: {phone}
+    // Fields:
+    //   - otp: string (required, 6 digits)
+    //   - expiresAt: number (required, timestamp in ms)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: settings
+    // Document ID: global
+    // Fields:
+    //   - primaryColor: string (optional)
+    //   - appName: string (optional)
     //
     // ===============================================================
 
@@ -46,15 +61,25 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    // USER PROFILES: Minimal access for authentication and role identification.
+    // USER PROFILES: Allow users to manage their own profiles.
     match /users/{userId} {
-      // Allow a user to read their own document so the app can identify them as an admin.
+      // Allow a user to read their own document.
       allow get: if isOwner(userId);
       
-      // Allow the super admin to create their initial profile.
-      allow create: if isOwner(userId) && request.auth.token.email == "ngugimaina4@gmail.com";
+      // Allow registration.
+      allow create: if isOwner(userId) && 
+        request.resource.data.role == 'USER' && 
+        !('isAdmin' in request.resource.data);
       
-      // All other operations (list, update, delete) are admin-only via the global rule.
+      // Allow users to update their own settings, but NOT their role or admin status.
+      allow update: if isOwner(userId) && 
+        (isAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin']));
+    }
+
+    // VERIFICATION CODES: Managed by server via Admin SDK.
+    // No client access needed.
+    match /verification_codes/{phone} {
+      allow read, write: if false;
     }
 
     // SETTINGS: Allow all users to read global settings for UI rendering 

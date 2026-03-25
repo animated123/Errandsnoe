@@ -6,313 +6,394 @@ import fetch from "node-fetch";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import nodemailer from "nodemailer";
+import * as admin from "firebase-admin";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, setDoc, getDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+// Load Firebase Config
+let firebaseConfig: any = {};
+const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+if (fs.existsSync(configPath)) {
+  try {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  } catch (error) {
+    console.error("Error parsing firebase-applet-config.json:", error);
+  }
+}
 
-  app.use(express.json());
-
-  // Cloudinary Configuration
-  const rawCloudinaryUrl = process.env.CLOUDINARY_URL;
-  if (rawCloudinaryUrl) {
-    // Trim and remove any accidental quotes
-    let trimmedUrl = rawCloudinaryUrl.trim().replace(/^['"]|['"]$/g, '');
-    
-    // If user accidentally included the variable name in the value
-    if (trimmedUrl.startsWith('CLOUDINARY_URL=')) {
-      trimmedUrl = trimmedUrl.replace('CLOUDINARY_URL=', '').trim();
-    }
-    
-    // Remove angle brackets if user literally pasted them from the documentation
-    trimmedUrl = trimmedUrl.replace(/[<>]/g, '');
-    
-    if (trimmedUrl.startsWith('cloudinary://')) {
-      try {
-        cloudinary.config({
-          cloudinary_url: trimmedUrl
-        });
-      } catch (error) {
-        console.error("Cloudinary configuration error:", error);
-      }
+// Initialize Firebase Admin SDK
+if (!admin.apps.length) {
+  try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.project_id
+      });
+      console.log("[Firebase Admin] Initialized with service account");
     } else {
-      console.warn("CLOUDINARY_URL does not start with 'cloudinary://'. Skipping configuration.");
+      admin.initializeApp({
+        projectId: firebaseConfig.projectId
+      });
+      console.log("[Firebase Admin] Initialized with project ID (default credentials)");
     }
+  } catch (error) {
+    console.error("[Firebase Admin] Initialization error:", error);
+  }
+}
+
+const adminDb = admin.firestore();
+const adminAuth = admin.auth();
+
+// Initialize Firebase Client SDK for server-side use (fallback/legacy)
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+
+const app = express();
+const PORT = 3000;
+
+app.use(express.json());
+
+// Middleware to verify Admin
+const verifyAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const upload = multer({ storage: multer.memoryStorage() });
+  const idToken = authHeader.split("Bearer ")[1];
+  try {
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    const userDoc = await adminDb.collection("users").doc(decodedToken.uid).get();
+    const userData = userDoc.data();
 
-  // Cloudinary Upload Route
-  app.post("/api/upload", upload.single('file'), async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
+    if (userData?.role === "ADMIN" || decodedToken.email === "ngugimaina4@gmail.com") {
+      (req as any).user = decodedToken;
+      next();
+    } else {
+      res.status(403).json({ error: "Forbidden: Admin access required" });
     }
+  } catch (error) {
+    console.error("Admin verification error:", error);
+    res.status(401).json({ error: "Invalid token" });
+  }
+};
 
-    if (!process.env.CLOUDINARY_URL) {
-      console.warn("CLOUDINARY_URL is not configured, using mock for development.");
-      // In development, we can return a mock URL if not configured
-      return res.json({ url: "https://picsum.photos/seed/" + Math.random() + "/800/600" });
-    }
-
+// Cloudinary Configuration
+const rawCloudinaryUrl = process.env.CLOUDINARY_URL;
+if (rawCloudinaryUrl) {
+  // Trim and remove any accidental quotes
+  let trimmedUrl = rawCloudinaryUrl.trim().replace(/^['"]|['"]$/g, '');
+  
+  // If user accidentally included the variable name in the value
+  if (trimmedUrl.startsWith('CLOUDINARY_URL=')) {
+    trimmedUrl = trimmedUrl.replace('CLOUDINARY_URL=', '').trim();
+  }
+  
+  // Remove angle brackets if user literally pasted them from the documentation
+  trimmedUrl = trimmedUrl.replace(/[<>]/g, '');
+  
+  if (trimmedUrl.startsWith('cloudinary://')) {
     try {
-      const b64 = Buffer.from(req.file.buffer).toString("base64");
-      const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
-      const response = await cloudinary.uploader.upload(dataURI, {
-        resource_type: "auto",
-        folder: req.body.folder || "errand-runner"
+      cloudinary.config({
+        cloudinary_url: trimmedUrl
       });
-      res.json({ url: response.secure_url });
     } catch (error) {
-      console.error("Cloudinary upload error:", error);
-      res.status(500).json({ error: "Upload failed" });
+      console.error("Cloudinary configuration error:", error);
     }
-  });
+  } else {
+    console.warn("CLOUDINARY_URL does not start with 'cloudinary://'. Skipping configuration.");
+  }
+}
 
-  // In-memory OTP storage (for production, use Redis or Firestore)
-  const otpStore = new Map<string, { otp: string, expiresAt: number }>();
+const upload = multer({ storage: multer.memoryStorage() });
 
-  // SMS Proxy Route for Textsasa
-  app.post("/api/sms/send", async (req, res) => {
-    const { recipient, message, phone } = req.body;
-    const targetPhone = phone || recipient;
-    const token = process.env.TEXTSASA_API_TOKEN || process.env.TALKSASA_API_TOKEN;
-    const endpoint = process.env.TEXTSASA_API_ENDPOINT || process.env.TALKSASA_API_ENDPOINT || "https://api.textsasa.com/api/v1/";
-    const senderId = process.env.TEXTSASA_SENDER_ID || process.env.TALKSASA_SENDER_ID || "ErrandRun";
+// Cloudinary Upload Route
+app.post("/api/upload", upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded" });
+  }
 
-    if (!token) {
-      return res.status(500).json({ error: "SMS API token is not configured" });
-    }
+  if (!process.env.CLOUDINARY_URL) {
+    console.warn("CLOUDINARY_URL is not configured, using mock for development.");
+    // In development, we can return a mock URL if not configured
+    return res.json({ url: "https://picsum.photos/seed/" + Math.random() + "/800/600" });
+  }
 
-    if (!targetPhone || !message) {
-      return res.status(400).json({ error: "Recipient and message are required" });
-    }
+  try {
+    const b64 = Buffer.from(req.file.buffer).toString("base64");
+    const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
+    const response = await cloudinary.uploader.upload(dataURI, {
+      resource_type: "auto",
+      folder: req.body.folder || "errand-runner"
+    });
+    res.json({ url: response.secure_url });
+  } catch (error) {
+    console.error("Cloudinary upload error:", error);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
 
-    try {
-      const fullUrl = endpoint.endsWith("/") ? `${endpoint}sms/send` : `${endpoint}/sms/send`;
-      
-      console.log(`[SMS] Sending to ${targetPhone} via ${fullUrl}`);
-      const response = await fetch(fullUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify({
-          recipient: targetPhone, // For Talksasa
-          phone: targetPhone,     // For Textsasa
-          message,
-          sender_id: senderId
-        })
-      });
+// SMS Proxy Route for Textsasa
+app.post("/api/sms/send", async (req, res) => {
+  const { recipient, message, phone } = req.body;
+  const targetPhone = phone || recipient;
+  const token = process.env.TEXTSASA_API_TOKEN || process.env.TALKSASA_API_TOKEN;
+  const endpoint = process.env.TEXTSASA_API_ENDPOINT || process.env.TALKSASA_API_ENDPOINT || "https://api.textsasa.com/api/v1/";
+  const senderId = process.env.TEXTSASA_SENDER_ID || process.env.TALKSASA_SENDER_ID || "ErrandRun";
 
-      const data = await response.json();
-      
-      if (!response.ok) {
-        console.error("SMS API error:", data);
-        return res.status(response.status).json(data);
-      }
+  if (!token) {
+    return res.status(500).json({ error: "SMS API token is not configured" });
+  }
 
-      console.log(`[SMS] Success:`, data);
-      res.json(data);
-    } catch (error) {
-      console.error("SMS Proxy error:", error);
-      res.status(500).json({ error: "Failed to send SMS" });
-    }
-  });
+  if (!targetPhone || !message) {
+    return res.status(400).json({ error: "Recipient and message are required" });
+  }
 
-  // OTP Generation and Sending
-  app.post("/api/sms/verify/send", async (req, res) => {
-    let { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: "Phone number is required" });
+  try {
+    const fullUrl = endpoint.endsWith("/") ? `${endpoint}sms/send` : `${endpoint}/sms/send`;
+    
+    console.log(`[SMS] Sending to ${targetPhone} via ${fullUrl}`);
+    const response = await fetch(fullUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({
+        recipient: targetPhone, // For Talksasa
+        phone: targetPhone,     // For Textsasa
+        message,
+        sender_id: senderId
+      })
+    });
 
-    // Normalize phone number (Kenya specific for Talksasa)
-    phone = phone.replace(/\s+/g, '').replace('+', '');
-    if (phone.startsWith('0')) {
-      phone = '254' + phone.substring(1);
-    } else if (phone.startsWith('7') || phone.startsWith('1')) {
-      phone = '254' + phone;
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-    otpStore.set(phone, { otp, expiresAt });
-    console.log(`[OTP] Stored code for ${phone}: ${otp}`);
-
-    const token = process.env.TEXTSASA_API_TOKEN || process.env.TALKSASA_API_TOKEN;
-    const endpoint = process.env.TEXTSASA_API_ENDPOINT || process.env.TALKSASA_API_ENDPOINT || "https://api.textsasa.com/api/v1/";
-    const senderId = process.env.TEXTSASA_SENDER_ID || process.env.TALKSASA_SENDER_ID || "ErrandRun";
-
-    if (!token) {
-      console.log(`[DEV] SMS API token not found. OTP for ${phone}: ${otp}`);
-      return res.json({ success: true, message: "OTP sent (dev mode)" });
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error("SMS API error:", data);
+      return res.status(response.status).json(data);
     }
 
-    try {
-      const fullUrl = endpoint.endsWith("/") ? `${endpoint}sms/send` : `${endpoint}/sms/send`;
-      const message = `Your ErrandRunner verification code is: ${otp}. Valid for 10 minutes.`;
+    console.log(`[SMS] Success:`, data);
+    res.json(data);
+  } catch (error) {
+    console.error("SMS Proxy error:", error);
+    res.status(500).json({ error: "Failed to send SMS" });
+  }
+});
 
-      console.log(`[OTP] Sending SMS to ${phone} via ${fullUrl}`);
-      const response = await fetch(fullUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify({
-          recipient: phone, // For Talksasa
-          phone: phone,     // For Textsasa
-          message,
-          sender_id: senderId
-        })
-      });
+// OTP Generation and Sending (Using Firestore for persistence across serverless instances)
+app.post("/api/sms/verify/send", async (req, res) => {
+  let { phone } = req.body;
+  if (!phone) return res.status(400).json({ error: "Phone number is required" });
 
-      const data = await response.json();
-      if (!response.ok) {
-        console.error("SMS API error:", data);
-        return res.status(response.status).json(data);
-      }
+  // Normalize phone number (Kenya specific for Talksasa)
+  phone = phone.replace(/\s+/g, '').replace('+', '');
+  if (phone.startsWith('0')) {
+    phone = '254' + phone.substring(1);
+  } else if (phone.startsWith('7') || phone.startsWith('1')) {
+    phone = '254' + phone;
+  }
 
-      console.log(`[OTP] SMS sent successfully to ${phone}`);
-      res.json({ success: true });
-    } catch (error) {
-      console.error("OTP Send error:", error);
-      res.status(500).json({ error: "Failed to send verification code" });
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+  try {
+    // Store in Firestore using Admin SDK for reliability
+    await adminDb.collection("verification_codes").doc(phone).set({
+      otp,
+      expiresAt,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    console.log(`[OTP] Stored code for ${phone} in Firestore: ${otp}`);
+  } catch (error) {
+    console.error("Error storing OTP in Firestore:", error);
+    return res.status(500).json({ error: "Failed to store verification code" });
+  }
+
+  const token = process.env.TEXTSASA_API_TOKEN || process.env.TALKSASA_API_TOKEN;
+  const endpoint = process.env.TEXTSASA_API_ENDPOINT || process.env.TALKSASA_API_ENDPOINT || "https://api.textsasa.com/api/v1/";
+  const senderId = process.env.TEXTSASA_SENDER_ID || process.env.TALKSASA_SENDER_ID || "ErrandRun";
+
+  if (!token) {
+    console.log(`[DEV] SMS API token not found. OTP for ${phone}: ${otp}`);
+    return res.json({ success: true, message: "OTP sent (dev mode)" });
+  }
+
+  try {
+    const fullUrl = endpoint.endsWith("/") ? `${endpoint}sms/send` : `${endpoint}/sms/send`;
+    const message = `Your ErrandRunner verification code is: ${otp}. Valid for 10 minutes.`;
+
+    console.log(`[OTP] Sending SMS to ${phone} via ${fullUrl}`);
+    const response = await fetch(fullUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({
+        recipient: phone, // For Talksasa
+        phone: phone,     // For Textsasa
+        message,
+        sender_id: senderId
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      console.error("SMS API error:", data);
+      return res.status(response.status).json(data);
     }
-  });
 
-  // OTP Verification
-  app.post("/api/sms/verify/confirm", async (req, res) => {
-    let { phone } = req.body;
-    const { code } = req.body;
-    if (!phone || !code) return res.status(400).json({ error: "Phone and code are required" });
+    console.log(`[OTP] SMS sent successfully to ${phone}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("OTP Send error:", error);
+    res.status(500).json({ error: "Failed to send verification code" });
+  }
+});
 
-    // Normalize phone number for lookup
-    phone = phone.replace(/\s+/g, '').replace('+', '');
-    if (phone.startsWith('0')) {
-      phone = '254' + phone.substring(1);
-    } else if (phone.startsWith('7') || phone.startsWith('1')) {
-      phone = '254' + phone;
-    }
+// OTP Verification (Using Firestore)
+app.post("/api/sms/verify/confirm", async (req, res) => {
+  let { phone } = req.body;
+  const { code } = req.body;
+  if (!phone || !code) return res.status(400).json({ error: "Phone and code are required" });
 
-    console.log(`[OTP] Verifying code for ${phone}: ${code}`);
-    const stored = otpStore.get(phone);
-    if (!stored) {
+  // Normalize phone number for lookup
+  phone = phone.replace(/\s+/g, '').replace('+', '');
+  if (phone.startsWith('0')) {
+    phone = '254' + phone.substring(1);
+  } else if (phone.startsWith('7') || phone.startsWith('1')) {
+    phone = '254' + phone;
+  }
+
+  console.log(`[OTP] Verifying code for ${phone}: ${code}`);
+  
+  try {
+    const docSnap = await adminDb.collection("verification_codes").doc(phone).get();
+    if (!docSnap.exists) {
       console.log(`[OTP] No code found for ${phone}`);
       return res.status(400).json({ error: "No verification code found for this number" });
     }
 
-    if (Date.now() > stored.expiresAt) {
+    const stored = docSnap.data();
+    if (Date.now() > (stored?.expiresAt || 0)) {
       console.log(`[OTP] Code expired for ${phone}`);
-      otpStore.delete(phone);
+      await adminDb.collection("verification_codes").doc(phone).delete();
       return res.status(400).json({ error: "Verification code has expired" });
     }
 
-    if (stored.otp !== code) {
-      console.log(`[OTP] Invalid code for ${phone}. Expected ${stored.otp}, got ${code}`);
+    if (stored?.otp !== code) {
+      console.log(`[OTP] Invalid code for ${phone}. Expected ${stored?.otp}, got ${code}`);
       return res.status(400).json({ error: "Invalid verification code" });
     }
 
     console.log(`[OTP] Verification successful for ${phone}`);
-    otpStore.delete(phone);
+    await adminDb.collection("verification_codes").doc(phone).delete();
     res.json({ success: true });
-  });
+  } catch (error) {
+    console.error("Error verifying OTP from Firestore:", error);
+    res.status(500).json({ error: "Verification failed" });
+  }
+});
 
-  // SMTP Email Route
-  app.post("/api/email/send", async (req, res) => {
-    const { to, subject, text, html } = req.body;
+// SMTP Email Route
+app.post("/api/email/send", async (req, res) => {
+  const { to, subject, text, html } = req.body;
 
-    if (!to || !subject || (!text && !html)) {
-      return res.status(400).json({ error: "To, subject, and message are required" });
-    }
+  if (!to || !subject || (!text && !html)) {
+    return res.status(400).json({ error: "To, subject, and message are required" });
+  }
 
-    const host = process.env.SMTP_HOST;
-    const port = parseInt(process.env.SMTP_PORT || "587");
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const from = process.env.SMTP_FROM || user;
+  const host = process.env.SMTP_HOST;
+  const port = parseInt(process.env.SMTP_PORT || "587");
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const from = process.env.SMTP_FROM || user;
 
-    if (!host || !user || !pass) {
-      console.log(`[DEV] SMTP not configured. Email to ${to}: ${subject}`);
-      return res.json({ success: true, message: "Email sent (dev mode)" });
-    }
+  if (!host || !user || !pass) {
+    console.log(`[DEV] SMTP not configured. Email to ${to}: ${subject}`);
+    return res.json({ success: true, message: "Email sent (dev mode)" });
+  }
 
-    try {
-      const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure: port === 465,
-        auth: { user, pass },
-      });
+  try {
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    });
 
-      await transporter.sendMail({
-        from,
-        to,
-        subject,
-        text,
-        html,
-      });
+    await transporter.sendMail({
+      from,
+      to,
+      subject,
+      text,
+      html,
+    });
 
-      console.log(`[Email] Sent to ${to}: ${subject}`);
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Email Send error:", error);
-      res.status(500).json({ error: "Failed to send email" });
-    }
-  });
+    console.log(`[Email] Sent to ${to}: ${subject}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Email Send error:", error);
+    res.status(500).json({ error: "Failed to send email" });
+  }
+});
 
-  // Admin Download Env Route
-  app.get("/api/admin/download-env", (req, res) => {
-    const envPath = path.join(process.cwd(), ".env");
+// Admin Download Env Route (Protected)
+app.get("/api/admin/download-env", verifyAdmin, (req, res) => {
+  const envPath = path.join(process.cwd(), ".env");
+  
+  if (fs.existsSync(envPath)) {
+    res.download(envPath, ".env");
+  } else {
+    // If .env doesn't exist on disk, generate it from process.env based on .env.example
+    const examplePath = path.join(process.cwd(), ".env.example");
+    let envContent = "";
     
-    if (fs.existsSync(envPath)) {
-      res.download(envPath, ".env");
-    } else {
-      // If .env doesn't exist on disk, generate it from process.env based on .env.example
-      const examplePath = path.join(process.cwd(), ".env.example");
-      let envContent = "";
+    if (fs.existsSync(examplePath)) {
+      const exampleContent = fs.readFileSync(examplePath, "utf-8");
+      const lines = exampleContent.split("\n");
       
-      if (fs.existsSync(examplePath)) {
-        const exampleContent = fs.readFileSync(examplePath, "utf-8");
-        const lines = exampleContent.split("\n");
-        
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith("#")) {
-            const [key] = trimmed.split("=");
-            if (key && process.env[key]) {
-              envContent += `${key}=${process.env[key]}\n`;
-            } else {
-              envContent += line + "\n";
-            }
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith("#")) {
+          const [key] = trimmed.split("=");
+          if (key && process.env[key]) {
+            envContent += `${key}=${process.env[key]}\n`;
           } else {
             envContent += line + "\n";
           }
-        }
-      } else {
-        // Fallback: just list all common app variables
-        const commonKeys = [
-          "VITE_GOOGLE_MAPS_API_KEY", "CLOUDINARY_URL", 
-          "TEXTSASA_API_TOKEN", "TEXTSASA_API_ENDPOINT", "TEXTSASA_SENDER_ID",
-          "TALKSASA_API_TOKEN", "TALKSASA_API_ENDPOINT", "TALKSASA_SENDER_ID",
-          "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"
-        ];
-        for (const key of commonKeys) {
-          if (process.env[key]) {
-            envContent += `${key}=${process.env[key]}\n`;
-          }
+        } else {
+          envContent += line + "\n";
         }
       }
-      
-      res.setHeader("Content-Type", "text/plain");
-      res.setHeader("Content-Disposition", "attachment; filename=.env");
-      res.send(envContent);
+    } else {
+      // Fallback: just list all common app variables
+      const commonKeys = [
+        "VITE_GOOGLE_MAPS_API_KEY", "CLOUDINARY_URL", 
+        "TEXTSASA_API_TOKEN", "TEXTSASA_API_ENDPOINT", "TEXTSASA_SENDER_ID",
+        "TALKSASA_API_TOKEN", "TALKSASA_API_ENDPOINT", "TALKSASA_SENDER_ID",
+        "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"
+      ];
+      for (const key of commonKeys) {
+        if (process.env[key]) {
+          envContent += `${key}=${process.env[key]}\n`;
+        }
+      }
     }
-  });
+    
+    res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Content-Disposition", "attachment; filename=.env");
+    res.send(envContent);
+  }
+});
 
-  // Vite middleware for development
+// Vite middleware for development
+async function setupVite() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -326,10 +407,16 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+}
 
+setupVite();
+
+// Export the app for Vercel
+export default app;
+
+// Start the server if not running on Vercel
+if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
-
-startServer();

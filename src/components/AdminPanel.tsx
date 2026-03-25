@@ -442,8 +442,28 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   </div>
                   <button 
-                    onClick={() => {
-                      window.open('/api/admin/download-env', '_blank');
+                    onClick={async () => {
+                      try {
+                        const { auth } = await import('../../src/lib/firebase');
+                        const token = await auth.currentUser?.getIdToken();
+                        const response = await fetch('/api/admin/download-env', {
+                          headers: {
+                            'Authorization': `Bearer ${token}`
+                          }
+                        });
+                        if (!response.ok) throw new Error('Failed to download');
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = '.env';
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                      } catch (e: any) {
+                        alert("Download failed: " + e.message);
+                      }
                     }}
                     className="px-6 py-3 bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
                   >

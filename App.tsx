@@ -2496,7 +2496,28 @@ const AdminPanelLocal: React.FC<{
                   </div>
                 </div>
                 <button 
-                  onClick={() => window.open('/api/admin/download-env', '_blank')}
+                  onClick={async () => {
+                    try {
+                      const token = await auth.currentUser?.getIdToken();
+                      const response = await fetch('/api/admin/download-env', {
+                        headers: {
+                          'Authorization': `Bearer ${token}`
+                        }
+                      });
+                      if (!response.ok) throw new Error('Failed to download');
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = '.env';
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
+                    } catch (e: any) {
+                      alert("Download failed: " + e.message);
+                    }
+                  }}
                   className="px-5 py-2 bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg"
                 >
                   <Download size={12} /> Download .env
