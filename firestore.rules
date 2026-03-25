@@ -1,10 +1,67 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // DEBUG: Allow all reads to confirm connection works
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // This security rules file assumes that Firestore is strictly for 
+    // administrative use. Non-admin users have minimal access.
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields: role, email, name, etc.
+    //
+    // All other collections: errands, settings, notifications, etc.
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN') ||
+          (request.auth.token.email == "ngugimaina4@gmail.com" && request.auth.token.email_verified == true)
+        );
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // GLOBAL RESTRICTION: Only admins can read or write any data by default.
     match /{allPaths=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // USER PROFILES: Minimal access for authentication and role identification.
+    match /users/{userId} {
+      // Allow a user to read their own document so the app can identify them as an admin.
+      allow get: if isOwner(userId);
+      
+      // Allow the super admin to create their initial profile.
+      allow create: if isOwner(userId) && request.auth.token.email == "ngugimaina4@gmail.com";
+      
+      // All other operations (list, update, delete) are admin-only via the global rule.
+    }
+
+    // SETTINGS: Allow all users to read global settings for UI rendering 
+    // and connection testing.
+    match /settings/global {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
   }
 }

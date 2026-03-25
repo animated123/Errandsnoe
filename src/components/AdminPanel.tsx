@@ -4,7 +4,7 @@ import { firebaseService, formatPhoneDisplay, cloudinaryService } from '../../se
 import { Skeleton } from './ErrandCard';
 import { 
   ShieldAlert, RefreshCw, Plus, Trash2, Upload, Save, MessageSquare, Loader2, 
-  X, Settings, ImageIcon, ShoppingBag, Download, Check, MessageCircle, 
+  X, Settings, ImageIcon, ShoppingBag, Download, Check, MessageCircle, FileText,
   Search, UserCheck, CheckCircle, Briefcase, Navigation, Info, DollarSign, 
   Droplets, Wifi, Shield, Car, Star, ChevronRight, ChevronLeft, Camera, 
   ShieldCheck, ArrowRight, Sparkles, Map, MapPin, Mail
@@ -428,6 +428,30 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 </div>
               </div>
+
+              <div className="space-y-6">
+                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">System Environment</h3>
+                <div className="flex items-center justify-between p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-slate-200 text-slate-600 rounded-xl flex items-center justify-center">
+                      <FileText size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-black text-slate-900">Environment File (.env)</h4>
+                      <p className="text-micro text-slate-400">Download current environment configuration</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      window.open('/api/admin/download-env', '_blank');
+                    }}
+                    className="px-6 py-3 bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                  >
+                    <Download size={14} /> Download
+                  </button>
+                </div>
+              </div>
+
               <button onClick={handleUpdateSettings} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-indigo-100 flex items-center justify-center gap-3">
                 <Save size={18} /> Save System Configuration
               </button>

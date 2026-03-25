@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import fetch from "node-fetch";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
@@ -259,6 +260,16 @@ async function startServer() {
     } catch (error) {
       console.error("Email Send error:", error);
       res.status(500).json({ error: "Failed to send email" });
+    }
+  });
+
+  // Admin Download Env Route
+  app.get("/api/admin/download-env", (req, res) => {
+    const envPath = path.join(process.cwd(), ".env");
+    if (fs.existsSync(envPath)) {
+      res.download(envPath, ".env");
+    } else {
+      res.status(404).send("Environment file not found");
     }
   });
 

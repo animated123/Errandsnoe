@@ -169,6 +169,10 @@
     "/support_chats/{userId}/messages/{messageId}": {
       "schema": "SupportMessage",
       "description": "Messages in a support chat"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
     }
   }
 }

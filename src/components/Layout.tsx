@@ -11,9 +11,18 @@ interface LayoutProps {
   onNotificationClick: (notif: AppNotification) => void;
   children: React.ReactNode;
   notifications: AppNotification[];
+  connectionStatus: 'testing' | 'success' | 'failed';
 }
 
-export default function Layout({ user, onLogout, activeTab, setActiveTab, children, notifications }: LayoutProps) {
+export default function Layout({ 
+  user, 
+  onLogout, 
+  activeTab, 
+  setActiveTab, 
+  children, 
+  notifications,
+  connectionStatus 
+}: LayoutProps) {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const navItems = [
@@ -34,7 +43,28 @@ export default function Layout({ user, onLogout, activeTab, setActiveTab, childr
           </div>
           <div>
             <h1 className="text-2xl leading-none mb-0.5">ErrandRunner</h1>
-            <p className="text-micro text-muted-foreground">Nairobi, Kenya</p>
+            <div className="flex items-center gap-2">
+              <p className="text-micro text-muted-foreground">Nairobi, Kenya</p>
+              {user?.isAdmin && (
+                <>
+                  <div className="w-1 h-1 bg-muted-foreground/30 rounded-full"></div>
+                  <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter border ${
+                    connectionStatus === 'testing' ? 'bg-slate-50 text-slate-400 border-slate-100' :
+                    connectionStatus === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                    'bg-rose-50 text-rose-600 border-rose-100'
+                  }`}>
+                    <div className={`w-1 h-1 rounded-full ${
+                      connectionStatus === 'testing' ? 'bg-slate-400 animate-pulse' :
+                      connectionStatus === 'success' ? 'bg-emerald-600' :
+                      'bg-rose-600'
+                    }`} />
+                    {connectionStatus === 'testing' ? 'Testing...' :
+                     connectionStatus === 'success' ? 'Firebase Connected' :
+                     'Local Mode'}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
         

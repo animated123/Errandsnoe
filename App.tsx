@@ -316,6 +316,14 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     
+    // RESTRICTION: Only admins get real-time Firestore updates for these collections
+    if (!user.isAdmin) {
+      console.log("Firestore access restricted to admin only. Using local state for this user.");
+      setIsLoadingErrands(false);
+      setIsLoadingAvailable(false);
+      return;
+    }
+    
     const unsubErrands = firebaseService.subscribeToUserErrands(user.id, user.role, (list) => {
       setErrands(list);
       setIsLoadingErrands(false);
@@ -345,7 +353,7 @@ export default function App() {
   }, [user, selectedErrand]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !user.isAdmin) return;
     
     const unsubErrands = firebaseService.subscribeToAllErrands(setAllErrands);
     const unsubRunners = firebaseService.subscribeToOnlineRunners(setOnlineRunners);
@@ -560,29 +568,32 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      {/* Connection Status Indicator */}
-      <div className="fixed bottom-4 right-4 z-[200]">
-        <div className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-2 ${
-          connectionStatus === 'testing' ? 'bg-slate-100 text-slate-400' :
-          connectionStatus === 'success' ? 'bg-emerald-100 text-emerald-600' :
-          'bg-rose-100 text-rose-600'
-        }`}>
-          <div className={`w-1.5 h-1.5 rounded-full ${
-            connectionStatus === 'testing' ? 'bg-slate-400 animate-pulse' :
-            connectionStatus === 'success' ? 'bg-emerald-600' :
-            'bg-rose-600'
-          }`} />
-          {connectionStatus === 'testing' ? 'Testing Connection...' :
-           connectionStatus === 'success' ? 'Firestore Connected' :
-           'Local Mode (Offline)'}
+      {/* Connection Status Indicator - Admin Only */}
+      {user?.isAdmin && (
+        <div className="fixed bottom-4 right-4 z-[200]">
+          <div className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-2 ${
+            connectionStatus === 'testing' ? 'bg-slate-100 text-slate-400' :
+            connectionStatus === 'success' ? 'bg-emerald-100 text-emerald-600' :
+            'bg-rose-100 text-rose-600'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${
+              connectionStatus === 'testing' ? 'bg-slate-400 animate-pulse' :
+              connectionStatus === 'success' ? 'bg-emerald-600' :
+              'bg-rose-600'
+            }`} />
+            {connectionStatus === 'testing' ? 'Testing Connection...' :
+             connectionStatus === 'success' ? 'Firestore Connected (Admin)' :
+             'Local Mode (Offline)'}
+          </div>
         </div>
-      </div>
+      )}
       <Layout 
         user={user} 
         onLogout={() => firebaseService.logout().then(() => setUser(null))} 
         activeTab={activeTab} 
         setActiveTab={setActiveTab}
         notifications={notifications}
+        connectionStatus={connectionStatus}
         onNotificationClick={(notif) => {
         if (notif.errandId) {
           const errand = errands.concat(availableErrands).find(e => e.id === notif.errandId);
@@ -1025,6 +1036,7 @@ export default function App() {
           setUserSearchQuery={setUserSearchQuery}
           userRoleFilter={userRoleFilter}
           setUserRoleFilter={setUserRoleFilter}
+          connectionStatus={connectionStatus}
         />}
         {activeTab === 'live-map' && (
           <div className="space-y-6 pb-12">
@@ -1716,7 +1728,8 @@ const AdminPanelLocal: React.FC<{
   setUserSearchQuery: (q: string) => void;
   userRoleFilter: UserRole | 'all';
   setUserRoleFilter: (r: UserRole | 'all') => void;
-}> = ({ user, settings, stats, setStats, userSearchQuery, setUserSearchQuery, userRoleFilter, setUserRoleFilter }) => {
+  connectionStatus: 'testing' | 'success' | 'failed';
+}> = ({ user, settings, stats, setStats, userSearchQuery, setUserSearchQuery, userRoleFilter, setUserRoleFilter, connectionStatus }) => {
   const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
   const [logoUrl, setLogoUrl] = useState(settings.logoUrl || '');
   const [iconUrl, setIconUrl] = useState(settings.iconUrl || '');
@@ -1964,7 +1977,23 @@ const AdminPanelLocal: React.FC<{
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-black text-white rounded-xl"><ShieldAlert size={24} /></div>
                 <div>
-                  <h2 className="text-lg font-black text-slate-900">Admin Dashboard</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-black text-slate-900">Admin Dashboard</h2>
+                    <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter border ${
+                      connectionStatus === 'testing' ? 'bg-slate-50 text-slate-400 border-slate-100' :
+                      connectionStatus === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                      'bg-rose-50 text-rose-600 border-rose-100'
+                    }`}>
+                      <div className={`w-1 h-1 rounded-full ${
+                        connectionStatus === 'testing' ? 'bg-slate-400 animate-pulse' :
+                        connectionStatus === 'success' ? 'bg-emerald-600' :
+                        'bg-rose-600'
+                      }`} />
+                      {connectionStatus === 'testing' ? 'Testing...' :
+                       connectionStatus === 'success' ? 'Firebase Connected' :
+                       'Local Mode'}
+                    </div>
+                  </div>
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">System Performance Metrics</p>
                 </div>
               </div>
@@ -2395,45 +2424,83 @@ const AdminPanelLocal: React.FC<{
       {activeAdminTab === 'system' && (
         <div className="space-y-6 animate-in fade-in">
           <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">Static Mode Active</h3>
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-4">System Environment</h3>
             <p className="text-xs text-slate-600 leading-relaxed mb-6">
-              The application is currently running in <strong>Static Mode</strong>. All data is stored locally in your browser's storage. No external services (Firebase, Gemini, Cloudinary, TalkSasa, Resend) are being used.
+              The application is currently connected to <strong>Firebase Cloud Services</strong>. Access is strictly controlled via Firestore Security Rules.
             </p>
             
             <div className="space-y-3">
               {[
-                { label: 'Database', value: 'Browser LocalStorage' },
-                { label: 'Media Storage', value: 'Mocked (Picsum)' },
-                { label: 'AI Services', value: 'Mocked' },
-                { label: 'Messaging', value: 'Mocked' },
-                { label: 'Email', value: 'Mocked' },
+                { label: 'Database', value: 'Google Firestore', status: connectionStatus === 'success' ? 'CONNECTED' : connectionStatus === 'testing' ? 'TESTING...' : 'DISCONNECTED' },
+                { label: 'Authentication', value: 'Firebase Auth', status: user ? 'AUTHENTICATED' : 'GUEST' },
+                { label: 'Media Storage', value: 'Cloudinary CDN', status: 'ACTIVE' },
+                { label: 'AI Services', value: 'Google Gemini', status: 'ACTIVE' },
+                { label: 'Messaging', value: 'Textsasa SMS', status: 'CONFIGURED' },
               ].map((env) => (
                 <div key={env.label} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{env.label}</span>
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1 text-emerald-600">
-                      <CheckCircle size={14} />
-                      <span className="text-[10px] font-black uppercase tracking-widest">{env.value}</span>
+                    <div className={`flex items-center gap-1 ${env.status === 'CONNECTED' || env.status === 'ACTIVE' || env.status === 'AUTHENTICATED' ? 'text-emerald-600' : env.status === 'TESTING...' ? 'text-amber-600' : 'text-rose-600'}`}>
+                      {env.status === 'CONNECTED' || env.status === 'ACTIVE' || env.status === 'AUTHENTICATED' ? <CheckCircle size={14} /> : <Activity size={14} />}
+                      <span className="text-[10px] font-black uppercase tracking-widest">{env.value} ({env.status})</span>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
             
-            <div className="mt-8 p-6 bg-emerald-50 rounded-[2rem] border border-emerald-100">
+            <div className={`mt-8 p-6 rounded-[2rem] border ${
+              connectionStatus === 'success' ? 'bg-emerald-50 border-emerald-100' : 
+              connectionStatus === 'testing' ? 'bg-amber-50 border-amber-100' : 
+              'bg-rose-50 border-rose-100'
+            }`}>
               <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-emerald-600 text-white rounded-lg"><Activity size={16} /></div>
-                <h4 className="text-sm font-black text-emerald-900 uppercase tracking-widest">Local System Health</h4>
+                <div className={`p-2 rounded-lg text-white ${
+                  connectionStatus === 'success' ? 'bg-emerald-600' : 
+                  connectionStatus === 'testing' ? 'bg-amber-600' : 
+                  'bg-rose-600'
+                }`}><Activity size={16} /></div>
+                <h4 className={`text-sm font-black uppercase tracking-widest ${
+                  connectionStatus === 'success' ? 'text-emerald-900' : 
+                  connectionStatus === 'testing' ? 'text-amber-900' : 
+                  'text-rose-900'
+                }`}>Firestore Connection Health</h4>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-white rounded-2xl border border-emerald-100">
-                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Storage Latency</p>
-                  <p className="text-xs font-black text-emerald-600">~1ms <span className="text-[8px] text-emerald-400 font-bold">INSTANT</span></p>
+                <div className="p-4 bg-white rounded-2xl border border-slate-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Access Level</p>
+                  <p className="text-xs font-black text-emerald-600">
+                    ADMINISTRATOR
+                  </p>
                 </div>
-                <div className="p-4 bg-white rounded-2xl border border-emerald-100">
-                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">App Status</p>
-                  <p className="text-xs font-black text-emerald-600">STABLE <span className="text-[8px] text-emerald-400 font-bold">LOCAL</span></p>
+                <div className="p-4 bg-white rounded-2xl border border-slate-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Connection State</p>
+                  <p className={`text-xs font-black ${
+                    connectionStatus === 'success' ? 'text-emerald-600' : 
+                    connectionStatus === 'testing' ? 'text-amber-600' : 
+                    'text-rose-600'
+                  }`}>
+                    {connectionStatus === 'success' ? 'STABLE' : connectionStatus === 'testing' ? 'CONNECTING' : 'OFFLINE'}
+                  </p>
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-8 p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-slate-200 text-slate-600 rounded-lg"><FileText size={16} /></div>
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">System Environment</h4>
+                    <p className="text-[10px] text-slate-400 font-bold">Download current .env configuration</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => window.open('/api/admin/download-env', '_blank')}
+                  className="px-5 py-2 bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg"
+                >
+                  <Download size={12} /> Download .env
+                </button>
               </div>
             </div>
           </div>
