@@ -67,6 +67,10 @@ export interface User {
   suspensionExpiresAt?: any;
   isOnline?: boolean;
   isVerified?: boolean;
+  verificationCode?: string;
+  verificationCodeExpiresAt?: any;
+  resetCode?: string;
+  resetCodeExpiresAt?: any;
   disabled?: boolean;
   notificationSettings?: {
     push: boolean;

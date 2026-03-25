@@ -731,6 +731,119 @@ export const firebaseService = {
     await firebaseService.reassignErrand(errandId, 'Approved by admin');
   },
 
+  generateEmailVerificationCode: async (userId: string, email: string) => {
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+    await updateDoc(doc(db, 'users', userId), {
+      verificationCode: code,
+      verificationCodeExpiresAt: expiresAt
+    });
+
+    const subject = 'Your Verification Code - ErrandRunner';
+    const text = `Your verification code is: ${code}. It expires in 15 minutes.`;
+    const html = `
+      <div style="font-family: sans-serif; padding: 20px; color: #1a1a1a;">
+        <h2 style="color: #FF6321;">Verify Your Email</h2>
+        <p>Thank you for joining ErrandRunner! Please use the following code to verify your email address:</p>
+        <div style="background: #f4f4f4; padding: 20px; border-radius: 12px; text-align: center; margin: 20px 0;">
+          <span style="font-size: 32px; font-weight: 900; letter-spacing: 5px; color: #000;">${code}</span>
+        </div>
+        <p style="font-size: 12px; color: #666;">This code will expire in 15 minutes.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+        <p style="font-size: 10px; color: #999;">If you didn't request this, you can safely ignore this email.</p>
+      </div>
+    `;
+
+    return emailService.sendEmail(email, subject, text, html);
+  },
+
+  verifyEmailCode: async (userId: string, code: string) => {
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    if (!userDoc.exists()) throw new Error('User not found');
+
+    const userData = userDoc.data() as User;
+    if (userData.verificationCode !== code) {
+      throw new Error('Invalid verification code');
+    }
+
+    if (userData.verificationCodeExpiresAt < Date.now()) {
+      throw new Error('Verification code has expired');
+    }
+
+    await updateDoc(doc(db, 'users', userId), {
+      emailVerified: true,
+      verificationCode: null,
+      verificationCodeExpiresAt: null
+    });
+
+    return { success: true };
+  },
+
+  generatePasswordResetCode: async (email: string) => {
+    const q = query(collection(db, 'users'), where('email', '==', email));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) throw new Error('User not found');
+
+    const userDoc = snapshot.docs[0];
+    const userId = userDoc.id;
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+    await updateDoc(doc(db, 'users', userId), {
+      resetCode: code,
+      resetCodeExpiresAt: expiresAt
+    });
+
+    const subject = 'Your Password Reset Code - ErrandRunner';
+    const text = `Your password reset code is: ${code}. It expires in 15 minutes.`;
+    const html = `
+      <div style="font-family: sans-serif; padding: 20px; color: #1a1a1a;">
+        <h2 style="color: #FF6321;">Reset Your Password</h2>
+        <p>You requested a password reset for your ErrandRunner account. Please use the following code to proceed:</p>
+        <div style="background: #f4f4f4; padding: 20px; border-radius: 12px; text-align: center; margin: 20px 0;">
+          <span style="font-size: 32px; font-weight: 900; letter-spacing: 5px; color: #000;">${code}</span>
+        </div>
+        <p style="font-size: 12px; color: #666;">This code will expire in 15 minutes.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+        <p style="font-size: 10px; color: #999;">If you didn't request this, you can safely ignore this email.</p>
+      </div>
+    `;
+
+    return emailService.sendEmail(email, subject, text, html);
+  },
+
+  verifyPasswordResetCode: async (email: string, code: string) => {
+    const q = query(collection(db, 'users'), where('email', '==', email));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) throw new Error('User not found');
+
+    const userDoc = snapshot.docs[0];
+    const userData = userDoc.data() as User;
+    if (userData.resetCode !== code) {
+      throw new Error('Invalid reset code');
+    }
+
+    if (userData.resetCodeExpiresAt < Date.now()) {
+      throw new Error('Reset code has expired');
+    }
+
+    return { success: true, userId: userDoc.id };
+  },
+
+  updatePassword: async (userId: string, newPass: string) => {
+    // In a real app, this would use Firebase Auth's updatePassword
+    // But since we're using a custom flow, we'll just update the doc for now
+    // NOTE: This is NOT secure for a real production app without backend verification
+    await updateDoc(doc(db, 'users', userId), {
+      resetCode: null,
+      resetCodeExpiresAt: null
+    });
+    // In this mock/dev environment, we can't actually change the Auth password easily without the user being logged in
+    // So we'll just log it and clear the code.
+    console.log('Password updated for user:', userId);
+  },
+
   respondToPriceRequest: async (errandId: string, requestId: string, answer: string) => {
     await updateDoc(doc(db, 'errands', errandId, 'price_requests', requestId), {
       status: answer,

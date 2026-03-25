@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Mail, Loader2, CheckCircle } from 'lucide-react';
+import { X, Mail, Loader2, CheckCircle, ShieldCheck } from 'lucide-react';
 import { User } from '../../types';
-import { firebaseService, emailService } from '../../services/firebaseService';
+import { firebaseService } from '../../services/firebaseService';
 
 interface EmailVerificationModalProps {
   user: User;
@@ -11,33 +11,38 @@ interface EmailVerificationModalProps {
 
 export default function EmailVerificationModal({ user, onClose, onSuccess }: EmailVerificationModalProps) {
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [sent, setSent] = useState(false);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
 
   const handleSendVerification = async () => {
     setLoading(true);
+    setError('');
     try {
-      await emailService.sendEmail(
-        user.email,
-        "Verify Your ErrandRunner Account",
-        `Welcome to ErrandRunner! Please verify your email address by clicking the following link: ${window.location.origin}/verify-email?uid=${user.id}`,
-        `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-          <h2 style="color: #FF6321;">Welcome to ErrandRunner!</h2>
-          <p>Hi ${user.name},</p>
-          <p>Thanks for joining ErrandRunner. Please verify your email address to get started:</p>
-          <a href="${window.location.origin}/verify-email?uid=${user.id}" 
-             style="display: inline-block; padding: 12px 24px; background-color: #000; color: #fff; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 20px 0;">
-            Verify Email Address
-          </a>
-          <p style="color: #666; font-size: 12px;">If you didn't create an account, you can safely ignore this email.</p>
-        </div>
-        `
-      );
+      await firebaseService.generateEmailVerificationCode(user.id, user.email);
       setSent(true);
     } catch (err) {
-      alert("Failed to send verification email.");
+      setError("Failed to send verification email.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (code.length !== 6) {
+      setError("Please enter a valid 6-digit code.");
+      return;
+    }
+    setVerifying(true);
+    setError('');
+    try {
+      await firebaseService.verifyEmailCode(user.id, code);
+      onSuccess();
+    } catch (err: any) {
+      setError(err.message || "Invalid verification code.");
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -55,13 +60,41 @@ export default function EmailVerificationModal({ user, onClose, onSuccess }: Ema
         </div>
 
         {sent ? (
-          <div className="bg-emerald-50 p-6 rounded-2xl text-center space-y-3">
-            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm">
-              <CheckCircle className="text-emerald-500" size={24} />
+          <div className="space-y-6">
+            <div className="bg-indigo-50 p-6 rounded-2xl text-center space-y-3">
+              <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm">
+                <ShieldCheck className="text-indigo-500" size={24} />
+              </div>
+              <p className="text-sm font-bold text-indigo-900">Verification code sent!</p>
+              <p className="text-xs text-indigo-600">Enter the 6-digit code sent to {user.email}</p>
             </div>
-            <p className="text-sm font-bold text-emerald-900">Verification email sent!</p>
-            <p className="text-xs text-emerald-600">Check your inbox at {user.email} and click the link to verify your account.</p>
-            <button onClick={onClose} className="w-full py-4 bg-emerald-500 text-white rounded-xl font-black uppercase text-xs tracking-widest mt-4">Close</button>
+
+            <div className="space-y-4">
+              <input 
+                type="text" 
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="000000"
+                className="w-full py-5 bg-slate-50 rounded-2xl text-center text-3xl font-black tracking-[10px] outline-none border-2 border-transparent focus:border-indigo-500 transition-all"
+              />
+              
+              {error && <p className="text-xs font-bold text-red-500 text-center">{error}</p>}
+
+              <button 
+                onClick={handleVerifyCode} disabled={verifying || code.length !== 6}
+                className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-slate-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+              >
+                {verifying ? <Loader2 size={18} className="animate-spin" /> : "Verify Code"}
+              </button>
+
+              <button 
+                onClick={handleSendVerification} disabled={loading}
+                className="w-full py-3 text-slate-400 hover:text-slate-900 text-[10px] font-black uppercase tracking-widest transition-colors"
+              >
+                {loading ? "Sending..." : "Resend Code"}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-6">
@@ -74,11 +107,14 @@ export default function EmailVerificationModal({ user, onClose, onSuccess }: Ema
                 <p className="text-sm font-black text-indigo-900">{user.email}</p>
               </div>
             </div>
+
+            {error && <p className="text-xs font-bold text-red-500 text-center">{error}</p>}
+
             <button 
               onClick={handleSendVerification} disabled={loading}
               className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-slate-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
             >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : "Send Verification Email"}
+              {loading ? <Loader2 size={18} className="animate-spin" /> : "Send Verification Code"}
             </button>
           </div>
         )}
