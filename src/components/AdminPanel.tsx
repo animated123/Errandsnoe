@@ -7,10 +7,11 @@ import {
   X, Settings, ImageIcon, ShoppingBag, Download, Check, MessageCircle, 
   Search, UserCheck, CheckCircle, Briefcase, Navigation, Info, DollarSign, 
   Droplets, Wifi, Shield, Car, Star, ChevronRight, ChevronLeft, Camera, 
-  ShieldCheck, ArrowRight, Sparkles, Map, MapPin
+  ShieldCheck, ArrowRight, Sparkles, Map, MapPin, Mail
 } from 'lucide-react';
 import LoadingSpinner from './LoadingSpinner';
 import SupportChatView from './SupportChatView';
+import UserAvatar from './UserAvatar';
 
 interface AdminPanelProps {
   user: User;
@@ -33,7 +34,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   userRoleFilter, 
   setUserRoleFilter 
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'users' | 'services' | 'featured' | 'system' | 'branding' | 'support' | 'sms'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'users' | 'services' | 'featured' | 'system' | 'branding' | 'support' | 'sms' | 'email'>('overview');
   const [applications, setApplications] = useState<RunnerApplication[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [services, setServices] = useState<ServiceListing[]>([]);
@@ -157,6 +158,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           { id: 'services', label: 'Service List', icon: <ShoppingBag size={14} />, count: services.length },
           { id: 'featured', label: 'Featured', icon: <Plus size={14} />, count: featured.length },
           { id: 'sms', label: 'SMS Config', icon: <MessageSquare size={14} /> },
+          { id: 'email', label: 'Email Config', icon: <Mail size={14} /> },
           { id: 'branding', label: 'Branding', icon: <ImageIcon size={14} /> }
         ].map(tab => (
           <button 
@@ -267,8 +269,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                 applications.map(app => (
                   <div key={app.id} className="p-8 flex items-center justify-between hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-6">
-                      <div className="w-16 h-16 bg-slate-100 rounded-2xl overflow-hidden">
-                        <img src={app.idFrontUrl} className="w-full h-full object-cover" alt="ID" />
+                      <div className="flex items-center gap-3">
+                        <div className="w-16 h-16 bg-slate-100 rounded-2xl overflow-hidden border border-slate-200">
+                          <img src={app.idFrontUrl} className="w-full h-full object-cover" alt="ID Front" />
+                        </div>
+                        <div className="w-16 h-16 bg-slate-100 rounded-2xl overflow-hidden border border-slate-200">
+                          <img src={app.idBackUrl} className="w-full h-full object-cover" alt="ID Back" />
+                        </div>
+                        {app.selfieUrl && (
+                          <div className="w-16 h-16 bg-slate-100 rounded-2xl overflow-hidden border border-slate-200">
+                            <img src={app.selfieUrl} className="w-full h-full object-cover" alt="Selfie" />
+                          </div>
+                        )}
                       </div>
                       <div>
                         <h4 className="text-xl font-black text-slate-900">{app.fullName}</h4>
@@ -314,7 +326,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                 {filteredUsers.map(u => (
                   <div key={u.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-4">
-                      <img src={u.avatar || `https://i.pravatar.cc/150?u=${u.id}`} className="w-12 h-12 rounded-xl object-cover" alt={u.name} />
+                      <UserAvatar src={u.avatar} name={u.name} className="w-12 h-12 rounded-xl" />
                       <div>
                         <h4 className="text-base font-black text-slate-900">{u.name}</h4>
                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{u.email} • {formatPhoneDisplay(u.phone)}</p>
@@ -547,20 +559,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           {activeTab === 'sms' && (
             <div className="p-10 space-y-10 max-w-2xl">
               <div className="space-y-6">
-                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">Talksasa SMS Integration</h3>
+                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">Textsasa SMS Integration</h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-micro text-slate-400 ml-1">API Token</label>
                     <input 
                       type="password" 
-                      placeholder="Enter Talksasa API Token"
+                      placeholder="Enter Textsasa API Token"
                       className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-base outline-none" 
                       onChange={(e) => {
                         // This would ideally be saved to a secure backend setting
                         // For now, we'll just show a test interface
                       }}
                     />
-                    <p className="text-[10px] text-slate-400 font-bold italic">Note: Token should be set in environment variables for security.</p>
+                    <p className="text-[10px] text-slate-400 font-bold italic">Note: Token should be set in environment variables (TEXTSASA_API_TOKEN) for security.</p>
                   </div>
                   
                   <div className="bg-indigo-50 p-6 rounded-[2rem] border border-indigo-100 space-y-4">
@@ -594,6 +606,79 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                         className="w-full py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100"
                       >
                         Send Test SMS
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'email' && (
+            <div className="p-10 space-y-10 max-w-2xl">
+              <div className="space-y-6">
+                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">SMTP Email Integration</h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-micro text-slate-400 ml-1">SMTP Host</label>
+                      <input type="text" placeholder="smtp.example.com" className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-base outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-micro text-slate-400 ml-1">SMTP Port</label>
+                      <input type="number" placeholder="587" className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-base outline-none" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-micro text-slate-400 ml-1">SMTP User</label>
+                      <input type="text" placeholder="user@example.com" className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-base outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-micro text-slate-400 ml-1">SMTP Password</label>
+                      <input type="password" placeholder="••••••••" className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-base outline-none" />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold italic">Note: SMTP credentials should be set in environment variables (SMTP_HOST, SMTP_USER, etc.) for security.</p>
+                  
+                  <div className="bg-emerald-50 p-6 rounded-[2rem] border border-emerald-100 space-y-4">
+                    <h4 className="text-sm font-black text-emerald-900">Test Email Connection</h4>
+                    <div className="space-y-3">
+                      <input 
+                        id="test-email-to"
+                        type="email" 
+                        placeholder="Recipient Email" 
+                        className="w-full p-3 bg-white rounded-xl text-xs font-bold outline-none"
+                      />
+                      <input 
+                        id="test-email-subject"
+                        type="text" 
+                        placeholder="Subject" 
+                        className="w-full p-3 bg-white rounded-xl text-xs font-bold outline-none"
+                      />
+                      <textarea 
+                        id="test-email-message"
+                        placeholder="Message Content" 
+                        className="w-full p-3 bg-white rounded-xl text-xs font-bold outline-none h-20 resize-none"
+                      />
+                      <button 
+                        onClick={async () => {
+                          const to = (document.getElementById('test-email-to') as HTMLInputElement).value;
+                          const subject = (document.getElementById('test-email-subject') as HTMLInputElement).value;
+                          const msg = (document.getElementById('test-email-message') as HTMLTextAreaElement).value;
+                          if (!to || !subject || !msg) return alert("To, subject and message required");
+                          
+                          const { emailService } = await import('../../services/firebaseService');
+                          const res = await emailService.sendEmail(to, subject, msg);
+                          if (res.success) {
+                            alert("Email Sent Successfully!");
+                          } else {
+                            alert("Failed to send email: " + JSON.stringify(res.error));
+                          }
+                        }}
+                        className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-100"
+                      >
+                        Send Test Email
                       </button>
                     </div>
                   </div>

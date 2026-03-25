@@ -48,6 +48,7 @@ import PhoneVerificationModal from './src/components/PhoneVerificationModal';
 import EmailVerificationModal from './src/components/EmailVerificationModal';
 import CameraCapture from './src/components/CameraCapture';
 import MapComponent from './src/components/MapComponent';
+import UserAvatar from './src/components/UserAvatar';
 
 // Mock Gemini call for static run
 const callGeminiWithRetry = async (prompt: string): Promise<string> => {
@@ -193,19 +194,28 @@ export default function App() {
   });
   const [authForm, setAuthForm] = useState({ name: '', email: '', phone: '', password: '', role: UserRole.REQUESTER });
 
+  const [connectionStatus, setConnectionStatus] = useState<'testing' | 'success' | 'failed'>('testing');
+
   useEffect(() => {
+    const handleConnectionFailure = () => {
+      setConnectionStatus('failed');
+    };
+    window.addEventListener('firebase-connection-failed', handleConnectionFailure);
+    
     // Test Firestore connection
     const testConnection = async () => {
       try {
         await getDocFromServer(doc(db, 'settings', 'global'));
         console.log("Firestore connection successful");
+        setConnectionStatus('success');
       } catch (error) {
-        if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. The client is offline.");
-        }
+        console.error("Firestore connection failed:", error);
+        // handleFirestoreError in firebaseService will trigger the event
       }
     };
     testConnection();
+
+    return () => window.removeEventListener('firebase-connection-failed', handleConnectionFailure);
   }, []);
 
   useEffect(() => {
@@ -550,6 +560,23 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      {/* Connection Status Indicator */}
+      <div className="fixed bottom-4 right-4 z-[200]">
+        <div className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-2 ${
+          connectionStatus === 'testing' ? 'bg-slate-100 text-slate-400' :
+          connectionStatus === 'success' ? 'bg-emerald-100 text-emerald-600' :
+          'bg-rose-100 text-rose-600'
+        }`}>
+          <div className={`w-1.5 h-1.5 rounded-full ${
+            connectionStatus === 'testing' ? 'bg-slate-400 animate-pulse' :
+            connectionStatus === 'success' ? 'bg-emerald-600' :
+            'bg-rose-600'
+          }`} />
+          {connectionStatus === 'testing' ? 'Testing Connection...' :
+           connectionStatus === 'success' ? 'Firestore Connected' :
+           'Local Mode (Offline)'}
+        </div>
+      </div>
       <Layout 
         user={user} 
         onLogout={() => firebaseService.logout().then(() => setUser(null))} 
@@ -788,7 +815,7 @@ export default function App() {
                   {nearbyRunners.map((runner) => (
                     <div key={runner.id} className="flex-shrink-0 w-36 bg-white p-4 rounded-3xl border border-slate-100 shadow-soft flex flex-col items-center text-center gap-2">
                       <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-strong">
-                        <img src={runner.profilePhoto || runner.avatar || `https://ui-avatars.com/api/?name=${runner.name}`} className="w-full h-full object-cover" alt={runner.name} />
+                        <UserAvatar src={runner.profilePhoto || runner.avatar} name={runner.name} className="w-full h-full" />
                       </div>
                       <div>
                         <h4 className="text-xs truncate w-full font-black">{runner.name.split(' ')[0]}</h4>
@@ -1096,7 +1123,7 @@ export default function App() {
                 {profileView === 'main' && (
                   <>
                     <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm text-center">
-                      <img src={user.avatar || `https://i.pravatar.cc/150?u=${user.id}`} className="w-20 h-20 rounded-[1.5rem] mx-auto mb-5 border-4 border-white shadow-xl" />
+                      <UserAvatar src={user.avatar} name={user.name} className="w-20 h-20 rounded-[1.5rem] mx-auto mb-5 border-4 border-white shadow-xl" />
                       <h2 className="text-lg font-black text-slate-900">{user.name}</h2>
                       <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-1 mb-4">{user.role}</p>
                       
@@ -2077,7 +2104,7 @@ const AdminPanelLocal: React.FC<{
                   <div key={r.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-xl transition-all">
                     <div className="flex items-center gap-3">
                       <span className="text-[10px] font-black text-slate-300 w-4">#{i+1}</span>
-                      <img src={r.avatar || `https://i.pravatar.cc/150?u=${r.id}`} className="w-8 h-8 rounded-lg object-cover" alt="" />
+                      <UserAvatar src={r.avatar} name={r.name} className="w-8 h-8 rounded-lg" />
                       <p className="text-xs font-black text-slate-900">{r.name}</p>
                     </div>
                     <p className="text-[10px] font-black text-indigo-600 uppercase">{r.errandsCompleted || 0} Tasks</p>
@@ -2190,7 +2217,7 @@ const AdminPanelLocal: React.FC<{
               <div key={u.id} className="bg-white rounded-[2rem] p-5 border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <div className="relative">
-                    <img src={u.avatar || `https://i.pravatar.cc/150?u=${u.id}`} className="w-12 h-12 rounded-2xl object-cover border-2 border-slate-50" alt="" />
+                    <UserAvatar src={u.avatar} name={u.name} className="w-12 h-12 rounded-2xl border-2 border-slate-50" />
                     <span className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${u.isOnline ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                   </div>
                   <div>
@@ -2897,10 +2924,11 @@ const RunnerApplicationFlow: React.FC<{ user: User, onBack: () => void }> = ({ u
     nationalId: '',
     idFrontUrl: '',
     idBackUrl: '',
+    selfieUrl: '',
     categoryApplied: ErrandCategory.GENERAL
   });
 
-  const handleUpload = async (file: File, field: 'idFrontUrl' | 'idBackUrl') => {
+  const handleUpload = async (file: File, field: 'idFrontUrl' | 'idBackUrl' | 'selfieUrl') => {
     setLoading(true);
     try {
       const url = await cloudinaryService.uploadImage(file);
@@ -2909,7 +2937,7 @@ const RunnerApplicationFlow: React.FC<{ user: User, onBack: () => void }> = ({ u
   };
 
   const handleSubmit = async () => {
-    if (!form.nationalId || !form.idFrontUrl || !form.idBackUrl) {
+    if (!form.nationalId || !form.idFrontUrl || !form.idBackUrl || !form.selfieUrl) {
       alert("Please complete all fields and uploads");
       return;
     }
@@ -2964,6 +2992,13 @@ const RunnerApplicationFlow: React.FC<{ user: User, onBack: () => void }> = ({ u
             <div className="aspect-video bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden relative">
               {form.idBackUrl ? <img src={form.idBackUrl} className="w-full h-full object-cover" /> : <button onClick={() => document.getElementById('idBack')?.click()} className="text-[10px] font-black uppercase text-slate-400">Upload</button>}
               <input id="idBack" type="file" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], 'idBackUrl')} />
+            </div>
+          </div>
+          <div className="space-y-2 col-span-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Selfie with ID</label>
+            <div className="aspect-video bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden relative">
+              {form.selfieUrl ? <img src={form.selfieUrl} className="w-full h-full object-cover" /> : <button onClick={() => document.getElementById('selfie')?.click()} className="text-[10px] font-black uppercase text-slate-400">Upload Selfie</button>}
+              <input id="selfie" type="file" className="hidden" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], 'selfieUrl')} />
             </div>
           </div>
         </div>
@@ -3479,10 +3514,10 @@ const ProfileEditor: React.FC<{
       <form onSubmit={handleSubmit} className="space-y-6 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
         <div className="flex flex-col items-center gap-4 mb-4">
           <div className="relative group">
-            <img 
-              src={formData.avatar || `https://i.pravatar.cc/150?u=${user.id}`} 
-              className="w-24 h-24 rounded-[2rem] object-cover border-4 border-slate-50 shadow-lg" 
-              alt="Avatar"
+            <UserAvatar 
+              src={formData.avatar} 
+              name={user.name} 
+              className="w-24 h-24 rounded-[2rem] border-4 border-slate-50 shadow-lg" 
             />
             <button 
               type="button"
@@ -4094,7 +4129,7 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                 )}
               </div>
               <div className="flex items-center gap-4">
-                <img src={selectedErrand.runnerProfileSnapshot.avatar || `https://ui-avatars.com/api/?name=Runner&background=random`} className="w-14 h-14 rounded-2xl object-cover border-2 border-slate-50 shadow-sm" alt="Runner" />
+                <UserAvatar src={selectedErrand.runnerProfileSnapshot.avatar} name="Runner" className="w-14 h-14 rounded-2xl border-2 border-slate-50 shadow-sm" />
                 <div className="flex-1">
                   <h4 className="font-black text-slate-900 text-sm">Agent CV</h4>
                   <div className="flex items-center gap-3 mt-1">
@@ -4341,7 +4376,7 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                         {selectedErrand.bids.map((b: any) => (
                           <div key={`${b.runnerId}-${b.timestamp}`} className="bg-white border border-slate-100 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                             <div className="flex items-center gap-3">
-                              <img src={`https://ui-avatars.com/api/?name=${b.runnerName}&background=000&color=fff`} className="w-10 h-10 rounded-xl" />
+                              <UserAvatar src={null} name={b.runnerName} className="w-10 h-10 rounded-xl" />
                               <div>
                                 <p className="text-sm font-black text-slate-900">{b.runnerName}</p>
                                 <p className="text-[9px] font-bold text-black uppercase tracking-widest">Ready: {b.eta || 'Now'}</p>

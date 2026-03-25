@@ -169,12 +169,13 @@ export interface RunnerApplication {
   id: string;
   userId: string;
   status: 'pending' | 'approved' | 'rejected';
-  idPhoto: string;
-  selfiePhoto: string;
+  idPhoto?: string;
+  selfiePhoto?: string;
   fullName?: string;
   phone?: string;
   idFrontUrl?: string;
   idBackUrl?: string;
+  selfieUrl?: string;
   nationalId?: string;
   categoryApplied?: string;
   createdAt: any;

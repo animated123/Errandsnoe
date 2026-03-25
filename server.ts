@@ -4,6 +4,7 @@ import path from "path";
 import fetch from "node-fetch";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
+import nodemailer from "nodemailer";
 
 async function startServer() {
   const app = express();
@@ -66,26 +67,29 @@ async function startServer() {
     }
   });
 
-  // SMS Proxy Route for Talksasa
+  // In-memory OTP storage (for production, use Redis or Firestore)
+  const otpStore = new Map<string, { otp: string, expiresAt: number }>();
+
+  // SMS Proxy Route for Textsasa
   app.post("/api/sms/send", async (req, res) => {
-    const { recipient, message } = req.body;
-    const token = process.env.TALKSASA_API_TOKEN;
-    const endpoint = process.env.TALKSASA_API_ENDPOINT || "https://bulksms.talksasa.com/api/v3/";
-    const senderId = process.env.TALKSASA_SENDER_ID || "ErrandRun";
+    const { recipient, message, phone } = req.body;
+    const targetPhone = phone || recipient;
+    const token = process.env.TEXTSASA_API_TOKEN || process.env.TALKSASA_API_TOKEN;
+    const endpoint = process.env.TEXTSASA_API_ENDPOINT || process.env.TALKSASA_API_ENDPOINT || "https://api.textsasa.com/api/v1/";
+    const senderId = process.env.TEXTSASA_SENDER_ID || process.env.TALKSASA_SENDER_ID || "ErrandRun";
 
     if (!token) {
-      return res.status(500).json({ error: "TALKSASA_API_TOKEN is not configured" });
+      return res.status(500).json({ error: "SMS API token is not configured" });
     }
 
-    if (!recipient || !message) {
+    if (!targetPhone || !message) {
       return res.status(400).json({ error: "Recipient and message are required" });
     }
 
     try {
-      // Talksasa API usually expects a POST to /sms/send or similar
-      // We'll use the endpoint provided and append sms/send if it's just the base
       const fullUrl = endpoint.endsWith("/") ? `${endpoint}sms/send` : `${endpoint}/sms/send`;
       
+      console.log(`[SMS] Sending to ${targetPhone} via ${fullUrl}`);
       const response = await fetch(fullUrl, {
         method: "POST",
         headers: {
@@ -94,7 +98,8 @@ async function startServer() {
           "Accept": "application/json"
         },
         body: JSON.stringify({
-          recipient,
+          recipient: targetPhone, // For Talksasa
+          phone: targetPhone,     // For Textsasa
           message,
           sender_id: senderId
         })
@@ -103,14 +108,157 @@ async function startServer() {
       const data = await response.json();
       
       if (!response.ok) {
-        console.error("Talksasa API error:", data);
+        console.error("SMS API error:", data);
         return res.status(response.status).json(data);
       }
 
+      console.log(`[SMS] Success:`, data);
       res.json(data);
     } catch (error) {
       console.error("SMS Proxy error:", error);
       res.status(500).json({ error: "Failed to send SMS" });
+    }
+  });
+
+  // OTP Generation and Sending
+  app.post("/api/sms/verify/send", async (req, res) => {
+    let { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: "Phone number is required" });
+
+    // Normalize phone number (Kenya specific for Talksasa)
+    phone = phone.replace(/\s+/g, '').replace('+', '');
+    if (phone.startsWith('0')) {
+      phone = '254' + phone.substring(1);
+    } else if (phone.startsWith('7') || phone.startsWith('1')) {
+      phone = '254' + phone;
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    otpStore.set(phone, { otp, expiresAt });
+    console.log(`[OTP] Stored code for ${phone}: ${otp}`);
+
+    const token = process.env.TEXTSASA_API_TOKEN || process.env.TALKSASA_API_TOKEN;
+    const endpoint = process.env.TEXTSASA_API_ENDPOINT || process.env.TALKSASA_API_ENDPOINT || "https://api.textsasa.com/api/v1/";
+    const senderId = process.env.TEXTSASA_SENDER_ID || process.env.TALKSASA_SENDER_ID || "ErrandRun";
+
+    if (!token) {
+      console.log(`[DEV] SMS API token not found. OTP for ${phone}: ${otp}`);
+      return res.json({ success: true, message: "OTP sent (dev mode)" });
+    }
+
+    try {
+      const fullUrl = endpoint.endsWith("/") ? `${endpoint}sms/send` : `${endpoint}/sms/send`;
+      const message = `Your ErrandRunner verification code is: ${otp}. Valid for 10 minutes.`;
+
+      console.log(`[OTP] Sending SMS to ${phone} via ${fullUrl}`);
+      const response = await fetch(fullUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({
+          recipient: phone, // For Talksasa
+          phone: phone,     // For Textsasa
+          message,
+          sender_id: senderId
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        console.error("SMS API error:", data);
+        return res.status(response.status).json(data);
+      }
+
+      console.log(`[OTP] SMS sent successfully to ${phone}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("OTP Send error:", error);
+      res.status(500).json({ error: "Failed to send verification code" });
+    }
+  });
+
+  // OTP Verification
+  app.post("/api/sms/verify/confirm", async (req, res) => {
+    let { phone } = req.body;
+    const { code } = req.body;
+    if (!phone || !code) return res.status(400).json({ error: "Phone and code are required" });
+
+    // Normalize phone number for lookup
+    phone = phone.replace(/\s+/g, '').replace('+', '');
+    if (phone.startsWith('0')) {
+      phone = '254' + phone.substring(1);
+    } else if (phone.startsWith('7') || phone.startsWith('1')) {
+      phone = '254' + phone;
+    }
+
+    console.log(`[OTP] Verifying code for ${phone}: ${code}`);
+    const stored = otpStore.get(phone);
+    if (!stored) {
+      console.log(`[OTP] No code found for ${phone}`);
+      return res.status(400).json({ error: "No verification code found for this number" });
+    }
+
+    if (Date.now() > stored.expiresAt) {
+      console.log(`[OTP] Code expired for ${phone}`);
+      otpStore.delete(phone);
+      return res.status(400).json({ error: "Verification code has expired" });
+    }
+
+    if (stored.otp !== code) {
+      console.log(`[OTP] Invalid code for ${phone}. Expected ${stored.otp}, got ${code}`);
+      return res.status(400).json({ error: "Invalid verification code" });
+    }
+
+    console.log(`[OTP] Verification successful for ${phone}`);
+    otpStore.delete(phone);
+    res.json({ success: true });
+  });
+
+  // SMTP Email Route
+  app.post("/api/email/send", async (req, res) => {
+    const { to, subject, text, html } = req.body;
+
+    if (!to || !subject || (!text && !html)) {
+      return res.status(400).json({ error: "To, subject, and message are required" });
+    }
+
+    const host = process.env.SMTP_HOST;
+    const port = parseInt(process.env.SMTP_PORT || "587");
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    const from = process.env.SMTP_FROM || user;
+
+    if (!host || !user || !pass) {
+      console.log(`[DEV] SMTP not configured. Email to ${to}: ${subject}`);
+      return res.json({ success: true, message: "Email sent (dev mode)" });
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { user, pass },
+      });
+
+      await transporter.sendMail({
+        from,
+        to,
+        subject,
+        text,
+        html,
+      });
+
+      console.log(`[Email] Sent to ${to}: ${subject}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Email Send error:", error);
+      res.status(500).json({ error: "Failed to send email" });
     }
   });
 

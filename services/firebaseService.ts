@@ -15,7 +15,8 @@ import {
   onSnapshot,
   serverTimestamp,
   increment,
-  limit
+  limit,
+  getDocFromServer
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
@@ -51,6 +52,69 @@ const INITIAL_SETTINGS: AppSettings = {
   maintenanceMode: false
 };
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// Validate connection to Firestore
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if(error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration. ");
+    }
+  }
+}
+testConnection();
+
 const INITIAL_FEATURED_SERVICES: FeaturedService[] = [
   { id: '1', title: 'Mama Fua (Laundry)', description: 'Professional laundry services at your doorstep.', imageUrl: 'https://picsum.photos/seed/laundry/400/300', price: 500, category: 'Mama Fua' },
   { id: '2', title: 'Market Shopping', description: 'Fresh groceries from the local market.', imageUrl: 'https://picsum.photos/seed/market/400/300', price: 300, category: 'Market Shopping' },
@@ -66,6 +130,7 @@ export const firebaseService = {
   subscribeToAuth: (callback: (user: User | null) => void) => {
     return onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        const path = `users/${firebaseUser.uid}`;
         try {
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
           if (userDoc.exists()) {
@@ -85,8 +150,7 @@ export const firebaseService = {
             } as User);
           }
         } catch (error) {
-          console.error("Error fetching user profile:", error);
-          callback(null);
+          handleFirestoreError(error, OperationType.GET, path);
         }
       } else {
         callback(null);
@@ -97,11 +161,17 @@ export const firebaseService = {
   login: async (email: string, pass: string): Promise<User> => {
     const userCredential = await signInWithEmailAndPassword(auth, email, pass);
     const firebaseUser = userCredential.user;
-    const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-    if (userDoc.exists()) {
-      return { ...userDoc.data(), id: firebaseUser.uid } as User;
+    const path = `users/${firebaseUser.uid}`;
+    try {
+      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+      if (userDoc.exists()) {
+        return { ...userDoc.data(), id: firebaseUser.uid } as User;
+      }
+      throw new Error('User profile not found');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      throw error;
     }
-    throw new Error('User profile not found');
   },
 
   register: async (name: string, email: string, phone: string, pass: string): Promise<User> => {
@@ -145,76 +215,102 @@ export const firebaseService = {
   },
 
   subscribeToOnlineRunners: (callback: (runners: User[]) => void) => {
+    const path = 'users';
     const q = query(
-      collection(db, 'users'), 
+      collection(db, path), 
       where('role', '==', UserRole.RUNNER),
       where('isOnline', '==', true)
     );
     return onSnapshot(q, (snapshot) => {
       callback(snapshot.docs.map(d => ({ ...d.data(), id: d.id } as User)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 
   subscribeToAllErrands: (callback: (errands: Errand[]) => void) => {
-    return onSnapshot(collection(db, 'errands'), (snapshot) => {
+    const path = 'errands';
+    return onSnapshot(collection(db, path), (snapshot) => {
       callback(snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 
   subscribeToSettings: (callback: (settings: AppSettings) => void) => {
+    const path = 'settings/global';
     return onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
       if (snapshot.exists()) {
         callback(snapshot.data() as AppSettings);
       } else {
         callback(INITIAL_SETTINGS);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 
   getAppStats: async () => {
     await delay(300);
-    const usersSnapshot = await getDocs(collection(db, 'users'));
-    const errandsSnapshot = await getDocs(collection(db, 'errands'));
-    const errands = errandsSnapshot.docs.map(d => d.data() as Errand);
-    
-    return {
-      totalUsers: usersSnapshot.size,
-      totalTasks: errands.length,
-      onlineUsers: Math.floor(Math.random() * 10),
-      avgDistance: 5.2,
-      avgCompletionTime: 45,
-      avgPenalty: 0,
-      failedErrandsPercent: 2,
-      revenuePerDay: [
-        { date: '2024-03-18', amount: 1200 },
-        { date: '2024-03-19', amount: 1500 },
-        { date: '2024-03-20', amount: 1100 },
-        { date: '2024-03-21', amount: 1800 },
-        { date: '2024-03-22', amount: 2200 },
-        { date: '2024-03-23', amount: 1900 },
-        { date: '2024-03-24', amount: 2500 }
-      ],
-      categoryDistribution: [
-        { name: 'Laundry', value: 400 },
-        { name: 'Shopping', value: 300 },
-        { name: 'Delivery', value: 300 },
-        { name: 'House Hunting', value: 200 }
-      ],
-      topRunners: [],
-      topRequesters: []
-    };
+    try {
+      const usersSnapshot = await getDocs(collection(db, 'users'));
+      const errandsSnapshot = await getDocs(collection(db, 'errands'));
+      const errands = errandsSnapshot.docs.map(d => d.data() as Errand);
+      
+      return {
+        totalUsers: usersSnapshot.size,
+        totalTasks: errands.length,
+        onlineUsers: Math.floor(Math.random() * 10),
+        avgDistance: 5.2,
+        avgCompletionTime: 45,
+        avgPenalty: 0,
+        failedErrandsPercent: 2,
+        revenuePerDay: [
+          { date: '2024-03-18', amount: 1200 },
+          { date: '2024-03-19', amount: 1500 },
+          { date: '2024-03-20', amount: 1100 },
+          { date: '2024-03-21', amount: 1800 },
+          { date: '2024-03-22', amount: 2200 },
+          { date: '2024-03-23', amount: 1900 },
+          { date: '2024-03-24', amount: 2500 }
+        ],
+        categoryDistribution: [
+          { name: 'Laundry', value: 400 },
+          { name: 'Shopping', value: 300 },
+          { name: 'Delivery', value: 300 },
+          { name: 'House Hunting', value: 200 }
+        ],
+        topRunners: [],
+        topRequesters: []
+      };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, 'stats');
+      throw error;
+    }
   },
 
   fetchFeaturedServices: async (): Promise<FeaturedService[]> => {
-    const snapshot = await getDocs(collection(db, 'featured_services'));
-    if (snapshot.empty) return INITIAL_FEATURED_SERVICES;
-    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as FeaturedService));
+    const path = 'featured_services';
+    try {
+      const snapshot = await getDocs(collection(db, path));
+      if (snapshot.empty) return INITIAL_FEATURED_SERVICES;
+      return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as FeaturedService));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      throw error;
+    }
   },
 
   fetchServiceListings: async (): Promise<ServiceListing[]> => {
-    const snapshot = await getDocs(collection(db, 'service_listings'));
-    if (snapshot.empty) return INITIAL_SERVICE_LISTINGS;
-    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as ServiceListing));
+    const path = 'service_listings';
+    try {
+      const snapshot = await getDocs(collection(db, path));
+      if (snapshot.empty) return INITIAL_SERVICE_LISTINGS;
+      return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as ServiceListing));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      throw error;
+    }
   },
 
   createErrand: async (data: any) => {
@@ -238,30 +334,39 @@ export const firebaseService = {
   },
 
   subscribeToUserErrands: (userId: string, role: UserRole, callback: (errands: Errand[]) => void) => {
+    const path = 'errands';
     const field = role === UserRole.RUNNER ? 'runnerId' : 'requesterId';
-    const q = query(collection(db, 'errands'), where(field, '==', userId));
+    const q = query(collection(db, path), where(field, '==', userId));
     return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand));
       callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 
   subscribeToAvailableErrands: (callback: (errands: Errand[]) => void) => {
+    const path = 'errands';
     const q = query(
-      collection(db, 'errands'), 
+      collection(db, path), 
       where('status', 'in', [ErrandStatus.PENDING, ErrandStatus.BIDDING])
     );
     return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand));
       callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 
   subscribeToNotifications: (userId: string, callback: (notifs: AppNotification[]) => void) => {
-    const q = query(collection(db, 'notifications'), where('userId', '==', userId));
+    const path = 'notifications';
+    const q = query(collection(db, path), where('userId', '==', userId));
     return onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as AppNotification));
       callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 
@@ -298,13 +403,25 @@ export const firebaseService = {
   },
 
   fetchRunnerApplications: async (): Promise<RunnerApplication[]> => {
-    const snapshot = await getDocs(collection(db, 'runner_applications'));
-    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as RunnerApplication));
+    const path = 'runner_applications';
+    try {
+      const snapshot = await getDocs(collection(db, path));
+      return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as RunnerApplication));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      throw error;
+    }
   },
 
   fetchAllUsers: async (): Promise<User[]> => {
-    const snapshot = await getDocs(collection(db, 'users'));
-    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as User));
+    const path = 'users';
+    try {
+      const snapshot = await getDocs(collection(db, path));
+      return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as User));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      throw error;
+    }
   },
 
   adminUpdateUser: async (userId: string, updates: any) => {
@@ -339,25 +456,34 @@ export const firebaseService = {
   },
 
   subscribeToAllSupportChats: (callback: (chats: any[]) => void) => {
-    return onSnapshot(collection(db, 'support_chats'), (snapshot) => {
+    const path = 'support_chats';
+    return onSnapshot(collection(db, path), (snapshot) => {
       callback(snapshot.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 
   subscribeToSupportChat: (userId: string, callback: (data: any) => void) => {
+    const path = `support_chats/${userId}`;
     return onSnapshot(doc(db, 'support_chats', userId), (snapshot) => {
       if (snapshot.exists()) {
         const chatData = snapshot.data();
+        const messagesPath = `support_chats/${userId}/messages`;
         const messagesQuery = query(collection(db, 'support_chats', userId, 'messages'), orderBy('createdAt', 'asc'));
         onSnapshot(messagesQuery, (msgSnapshot) => {
           callback({
             ...chatData,
             messages: msgSnapshot.docs.map(d => ({ ...d.data(), id: d.id }))
           });
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, messagesPath);
         });
       } else {
         callback({ messages: [] });
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 
@@ -539,6 +665,32 @@ export const firebaseService = {
     });
   },
 
+  sendPhoneVerificationCode: async (phone: string) => {
+    const response = await fetch('/api/sms/verify/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to send verification code');
+    }
+    return response.json();
+  },
+
+  verifyPhoneCode: async (phone: string, code: string) => {
+    const response = await fetch('/api/sms/verify/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, code })
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Invalid verification code');
+    }
+    return response.json();
+  },
+
   sendPriceRequest: async (errandId: string, itemName: string, originalPrice: number, newPrice: number) => {
     await addDoc(collection(db, 'errands', errandId, 'price_requests'), {
       itemName,
@@ -653,6 +805,32 @@ export const geminiService = {
   extractReceiptTotal: async (imageUrl: string): Promise<{ total: number } | null> => {
     await delay(1000);
     return { total: Math.floor(Math.random() * 2000) + 500 };
+  }
+};
+
+export const emailService = {
+  sendEmail: async (to: string, subject: string, text: string, html?: string) => {
+    try {
+      const response = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ to, subject, text, html }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Email sending failed:', error);
+        return { success: false, error };
+      }
+      
+      const data = await response.json();
+      return { success: true, data };
+    } catch (error) {
+      console.error('Email service error:', error);
+      return { success: false, error };
+    }
   }
 };
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mail, Loader2, CheckCircle } from 'lucide-react';
 import { User } from '../../types';
-import { firebaseService } from '../../services/firebaseService';
+import { firebaseService, emailService } from '../../services/firebaseService';
 
 interface EmailVerificationModalProps {
   user: User;
@@ -16,8 +16,23 @@ export default function EmailVerificationModal({ user, onClose, onSuccess }: Ema
   const handleSendVerification = async () => {
     setLoading(true);
     try {
-      // Assuming firebaseService has sendEmailVerification
-      // await firebaseService.sendEmailVerification();
+      await emailService.sendEmail(
+        user.email,
+        "Verify Your ErrandRunner Account",
+        `Welcome to ErrandRunner! Please verify your email address by clicking the following link: ${window.location.origin}/verify-email?uid=${user.id}`,
+        `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #FF6321;">Welcome to ErrandRunner!</h2>
+          <p>Hi ${user.name},</p>
+          <p>Thanks for joining ErrandRunner. Please verify your email address to get started:</p>
+          <a href="${window.location.origin}/verify-email?uid=${user.id}" 
+             style="display: inline-block; padding: 12px 24px; background-color: #000; color: #fff; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 20px 0;">
+            Verify Email Address
+          </a>
+          <p style="color: #666; font-size: 12px;">If you didn't create an account, you can safely ignore this email.</p>
+        </div>
+        `
+      );
       setSent(true);
     } catch (err) {
       alert("Failed to send verification email.");

@@ -15,15 +15,20 @@ export default function PhoneVerificationModal({ user, onClose, onSuccess }: Pho
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [loading, setLoading] = useState(false);
 
+  const [devMode, setDevMode] = useState(false);
+
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setDevMode(false);
     try {
-      // Assuming firebaseService has sendPhoneVerificationCode
-      // await firebaseService.sendPhoneVerificationCode(phone);
+      const result = await firebaseService.sendPhoneVerificationCode(phone);
+      if (result.message?.includes('dev mode')) {
+        setDevMode(true);
+      }
       setStep('code');
-    } catch (err) {
-      alert("Failed to send verification code.");
+    } catch (err: any) {
+      alert(err.message || "Failed to send verification code.");
     } finally {
       setLoading(false);
     }
@@ -33,13 +38,12 @@ export default function PhoneVerificationModal({ user, onClose, onSuccess }: Pho
     e.preventDefault();
     setLoading(true);
     try {
-      // Assuming firebaseService has verifyPhoneCode
-      // await firebaseService.verifyPhoneCode(code);
+      await firebaseService.verifyPhoneCode(phone, code);
       await firebaseService.updateUserSettings(user.id, { phoneVerified: true, phone });
       onSuccess();
       onClose();
-    } catch (err) {
-      alert("Invalid verification code.");
+    } catch (err: any) {
+      alert(err.message || "Invalid verification code.");
     } finally {
       setLoading(false);
     }
@@ -91,6 +95,13 @@ export default function PhoneVerificationModal({ user, onClose, onSuccess }: Pho
                 />
               </div>
             </div>
+            {devMode && (
+              <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest leading-relaxed">
+                  Dev Mode: Check server logs for the verification code.
+                </p>
+              </div>
+            )}
             <button 
               type="submit" disabled={loading}
               className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-slate-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3"

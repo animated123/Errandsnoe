@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { APIProvider, Map, Marker, InfoWindow, useMarkerRef } from '@vis.gl/react-google-maps';
 import { Errand, User, Coordinates } from '../../types';
-import { MapPin, User as UserIcon, Navigation } from 'lucide-react';
+import UserAvatar from './UserAvatar';
 
 interface MapComponentProps {
   errands: Errand[];
@@ -81,9 +81,11 @@ export default function MapComponent({ errands, runners, center, zoom = 13 }: Ma
               onCloseClick={() => setSelectedId(null)}
             >
               <div className="p-2 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary">
-                  <img src={runners.find(r => r.id === selectedId)?.profilePhoto || `https://ui-avatars.com/api/?name=${runners.find(r => r.id === selectedId)?.name}`} className="w-full h-full object-cover" />
-                </div>
+                <UserAvatar 
+                  src={runners.find(r => r.id === selectedId)?.profilePhoto} 
+                  name={runners.find(r => r.id === selectedId)?.name} 
+                  className="w-10 h-10" 
+                />
                 <div>
                   <h4 className="font-black text-xs">{runners.find(r => r.id === selectedId)?.name}</h4>
                   <p className="text-[10px] text-emerald-600 font-bold">Online Now</p>

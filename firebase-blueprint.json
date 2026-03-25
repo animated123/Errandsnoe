@@ -105,6 +105,7 @@
         "categoryApplied": { "type": "string" },
         "idFrontUrl": { "type": "string" },
         "idBackUrl": { "type": "string" },
+        "selfieUrl": { "type": "string" },
         "status": { "type": "string" },
         "createdAt": { "type": "string" }
       }
