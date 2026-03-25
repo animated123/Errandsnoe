@@ -266,10 +266,49 @@ async function startServer() {
   // Admin Download Env Route
   app.get("/api/admin/download-env", (req, res) => {
     const envPath = path.join(process.cwd(), ".env");
+    
     if (fs.existsSync(envPath)) {
       res.download(envPath, ".env");
     } else {
-      res.status(404).send("Environment file not found");
+      // If .env doesn't exist on disk, generate it from process.env based on .env.example
+      const examplePath = path.join(process.cwd(), ".env.example");
+      let envContent = "";
+      
+      if (fs.existsSync(examplePath)) {
+        const exampleContent = fs.readFileSync(examplePath, "utf-8");
+        const lines = exampleContent.split("\n");
+        
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith("#")) {
+            const [key] = trimmed.split("=");
+            if (key && process.env[key]) {
+              envContent += `${key}=${process.env[key]}\n`;
+            } else {
+              envContent += line + "\n";
+            }
+          } else {
+            envContent += line + "\n";
+          }
+        }
+      } else {
+        // Fallback: just list all common app variables
+        const commonKeys = [
+          "VITE_GOOGLE_MAPS_API_KEY", "CLOUDINARY_URL", 
+          "TEXTSASA_API_TOKEN", "TEXTSASA_API_ENDPOINT", "TEXTSASA_SENDER_ID",
+          "TALKSASA_API_TOKEN", "TALKSASA_API_ENDPOINT", "TALKSASA_SENDER_ID",
+          "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"
+        ];
+        for (const key of commonKeys) {
+          if (process.env[key]) {
+            envContent += `${key}=${process.env[key]}\n`;
+          }
+        }
+      }
+      
+      res.setHeader("Content-Type", "text/plain");
+      res.setHeader("Content-Disposition", "attachment; filename=.env");
+      res.send(envContent);
     }
   });
 
