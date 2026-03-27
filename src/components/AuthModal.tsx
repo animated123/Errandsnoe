@@ -40,8 +40,24 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess, initialMode 
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-10 duration-500">
-        <div className="p-8 space-y-6">
+      <div className="bg-white w-full max-w-md md:max-w-4xl rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-10 duration-500 flex flex-col md:flex-row">
+        {/* Left Side: Image (Desktop Only) */}
+        <div className="hidden md:block md:w-1/2 relative overflow-hidden bg-black">
+          <img 
+            src="https://picsum.photos/seed/delivery/800/1200" 
+            className="absolute inset-0 w-full h-full object-cover opacity-60" 
+            alt="Auth background" 
+            referrerPolicy="no-referrer"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-12 text-white space-y-4">
+            <Sparkles className="text-indigo-400" size={40} />
+            <h3 className="text-4xl font-black tracking-tight">Get things done with ease.</h3>
+            <p className="text-base font-bold text-slate-300 uppercase tracking-widest leading-relaxed">Join thousands of Kenyans getting their errands handled by professionals.</p>
+          </div>
+        </div>
+
+        {/* Right Side: Form */}
+        <div className="p-8 md:p-12 md:w-1/2 space-y-6">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-3xl font-black text-slate-900 tracking-tight">{mode === 'login' ? 'Welcome Back' : 'Join Us'}</h2>

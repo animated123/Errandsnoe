@@ -39,6 +39,7 @@ export default function EmailVerificationModal({ user, onClose, onSuccess }: Ema
     try {
       await firebaseService.verifyEmailCode(user.id, code);
       onSuccess();
+      onClose();
     } catch (err: any) {
       setError(err.message || "Invalid verification code.");
     } finally {

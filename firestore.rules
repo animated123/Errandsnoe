@@ -8,7 +8,7 @@ service cloud.firestore {
     // Collection: users
     // Document ID: {userId}
     // Fields:
-    //   - role: string (required, 'USER' or 'ADMIN')
+    //   - role: string (required, 'requester', 'runner', or 'admin')
     //   - email: string (required, email format)
     //   - name: string (required)
     //   - phone: string (optional)
@@ -16,18 +16,22 @@ service cloud.firestore {
     //   - emailVerified: bool (optional)
     //   - theme: string (optional, 'light' or 'dark')
     //
-    // Collection: verification_codes
-    // Document ID: {phone}
+    // Collection: errands
+    // Document ID: {errandId}
     // Fields:
-    //   - otp: string (required, 6 digits)
-    //   - expiresAt: number (required, timestamp in ms)
-    //   - createdAt: timestamp (required)
-    //
-    // Collection: settings
-    // Document ID: global
-    // Fields:
-    //   - primaryColor: string (optional)
-    //   - appName: string (optional)
+    //   - title: string (required)
+    //   - description: string (optional)
+    //   - requesterId: string (required)
+    //   - requesterName: string (required)
+    //   - status: string (required)
+    //   - budget: number (required)
+    //   - category: string (required)
+    //   - pickupLocation: string (required)
+    //   - pickupCoordinates: map (required)
+    //   - dropoffLocation: string (optional)
+    //   - dropoffCoordinates: map (optional)
+    //   - createdAt: string (required)
+    //   - updatedAt: string (required)
     //
     // ===============================================================
 
@@ -47,9 +51,19 @@ service cloud.firestore {
       return isAuthenticated() &&
         (
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN') ||
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
           (request.auth.token.email == "ngugimaina4@gmail.com" && request.auth.token.email_verified == true)
         );
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'role']) &&
+             data.role in ['requester', 'runner', 'admin'];
+    }
+
+    function isValidErrand(data) {
+      return data.keys().hasAll(['title', 'requesterId', 'requesterName', 'status', 'budget', 'category', 'pickupLocation', 'pickupCoordinates']) &&
+             data.requesterId == request.auth.uid;
     }
 
     // ===============================================================
@@ -68,18 +82,49 @@ service cloud.firestore {
       
       // Allow registration.
       allow create: if isOwner(userId) && 
-        request.resource.data.role == 'USER' && 
+        isValidUser(request.resource.data) && 
         !('isAdmin' in request.resource.data);
       
-      // Allow users to update their own settings, but NOT their role or admin status.
-      allow update: if isOwner(userId) && 
-        (isAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin']));
+      // Allow users to update their own settings, but NOT their role, admin status, or ratings.
+      // Allow other authenticated users to update ONLY rating and ratingCount.
+      allow update: if (isOwner(userId) && 
+        (isAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'rating', 'ratingCount']))) ||
+        (!isOwner(userId) && isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'ratingCount']));
     }
 
-    // VERIFICATION CODES: Managed by server via Admin SDK.
-    // No client access needed.
-    match /verification_codes/{phone} {
-      allow read, write: if false;
+    // ERRANDS: Requesters can create, everyone can read (for runners to see).
+    match /errands/{errandId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidErrand(request.resource.data);
+      allow update: if isAuthenticated() && (
+        // Requester can update their own errand (e.g. cancel, accept bid)
+        (resource.data.requesterId == request.auth.uid) ||
+        // Runner can update if they are assigned or bidding
+        (request.auth.uid == request.resource.data.runnerId) ||
+        (request.resource.data.bids != null) ||
+        isAdmin()
+      );
+    }
+
+    // NOTIFICATIONS: Only the user can read their own notifications.
+    match /notifications/{id} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow write: if isAdmin();
+    }
+
+    // RUNNER APPLICATIONS: Users can create, admins can read/write.
+    match /runner_applications/{id} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read, write: if isAdmin();
+    }
+
+    // SUPPORT CHATS: Users can read/write their own chat.
+    match /support_chats/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+      
+      match /messages/{messageId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
     }
 
     // SETTINGS: Allow all users to read global settings for UI rendering 

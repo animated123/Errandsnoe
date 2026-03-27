@@ -41,7 +41,7 @@ export default function MenuView({ listings, onSelect, isLoading }: MenuViewProp
         })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 px-2">
         {isLoading ? (
           [1, 2, 3, 4].map((i) => (
             <div key={`skeleton-listing-${i}`} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm">

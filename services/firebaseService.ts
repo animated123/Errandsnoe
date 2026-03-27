@@ -1,4 +1,4 @@
-import { User, UserRole, Errand, ErrandStatus, AppNotification, AppSettings, FeaturedService, ServiceListing, RunnerApplication } from '../types';
+import { User, UserRole, Errand, ErrandStatus, AppNotification, AppSettings, FeaturedService, ServiceListing, RunnerApplication, ChatMessage } from '../types';
 import { db, auth } from '../src/lib/firebase';
 import { 
   collection, 
@@ -126,7 +126,55 @@ const INITIAL_SERVICE_LISTINGS: ServiceListing[] = [
   { id: '2', title: 'Gikomba Shopping', price: 1000, category: 'Shopping', description: 'Detailed shopping from Gikomba market.' }
 ];
 
+// Rating functions
+const updateUserRating = async (userId: string, newRating: number) => {
+  const userRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists()) {
+    const userData = userSnap.data() as User;
+    const currentRating = userData.rating || 0;
+    const currentCount = userData.ratingCount || 0;
+    const newCount = currentCount + 1;
+    const updatedRating = (currentRating * currentCount + newRating) / newCount;
+    
+    await updateDoc(userRef, {
+      rating: updatedRating,
+      ratingCount: newCount
+    });
+  }
+};
+
+const sanitizeErrand = (data: any, id: string): Errand => ({
+  ...data,
+  id,
+  bids: data.bids || [],
+  chat: data.chat || [],
+  microSteps: data.microSteps || [],
+  checklist: data.checklist || [],
+  priceRequests: data.priceRequests || [],
+  propertyListings: data.propertyListings || [],
+  proofs: data.proofs || []
+});
+
 export const firebaseService = {
+  updateUserRating,
+
+  rateRunner: async (errandId: string, runnerId: string, rating: number, review: string) => {
+    await updateDoc(doc(db, 'errands', errandId), {
+      runnerRating: rating,
+      runnerReview: review
+    });
+    await updateUserRating(runnerId, rating);
+  },
+
+  rateRequester: async (errandId: string, requesterId: string, rating: number, review: string) => {
+    await updateDoc(doc(db, 'errands', errandId), {
+      requesterRating: rating,
+      requesterReview: review
+    });
+    await updateUserRating(requesterId, rating);
+  },
+
   subscribeToAuth: (callback: (user: User | null) => void) => {
     return onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -231,7 +279,7 @@ export const firebaseService = {
   subscribeToAllErrands: (callback: (errands: Errand[]) => void) => {
     const path = 'errands';
     return onSnapshot(collection(db, path), (snapshot) => {
-      callback(snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand)));
+      callback(snapshot.docs.map(d => sanitizeErrand(d.data(), d.id)));
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, path);
     });
@@ -317,6 +365,13 @@ export const firebaseService = {
     const docRef = await addDoc(collection(db, 'errands'), {
       ...data,
       status: ErrandStatus.PENDING,
+      bids: [],
+      chat: [],
+      microSteps: [],
+      checklist: data.checklist || [],
+      priceRequests: [],
+      propertyListings: [],
+      proofs: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -338,7 +393,7 @@ export const firebaseService = {
     const field = role === UserRole.RUNNER ? 'runnerId' : 'requesterId';
     const q = query(collection(db, path), where(field, '==', userId));
     return onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand));
+      const list = snapshot.docs.map(d => sanitizeErrand(d.data(), d.id));
       callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, path);
@@ -352,7 +407,7 @@ export const firebaseService = {
       where('status', 'in', [ErrandStatus.PENDING, ErrandStatus.BIDDING])
     );
     return onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Errand));
+      const list = snapshot.docs.map(d => sanitizeErrand(d.data(), d.id));
       callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, path);
@@ -373,7 +428,7 @@ export const firebaseService = {
   fetchErrandById: async (id: string): Promise<Errand | null> => {
     const docSnap = await getDoc(doc(db, 'errands', id));
     if (docSnap.exists()) {
-      return { ...docSnap.data(), id: docSnap.id } as Errand;
+      return sanitizeErrand(docSnap.data(), docSnap.id);
     }
     return null;
   },
@@ -629,6 +684,23 @@ export const firebaseService = {
       senderName,
       text,
       createdAt: serverTimestamp()
+    });
+  },
+
+  subscribeToErrandChat: (errandId: string, callback: (messages: ChatMessage[]) => void) => {
+    const path = `errands/${errandId}/chat`;
+    const q = query(collection(db, 'errands', errandId, 'chat'), orderBy('createdAt', 'asc'));
+    return onSnapshot(q, (snapshot) => {
+      callback(snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          id: d.id,
+          timestamp: data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now())
+        } as ChatMessage;
+      }));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   },
 

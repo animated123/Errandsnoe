@@ -9,11 +9,13 @@
         "name": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
-        "role": { "type": "string", "enum": ["REQUESTER", "RUNNER", "ADMIN"] },
+        "role": { "type": "string", "enum": ["requester", "runner", "admin"] },
         "isAdmin": { "type": "boolean" },
         "loyaltyPoints": { "type": "integer" },
         "hoursSaved": { "type": "integer" },
         "loyaltyLevel": { "type": "string" },
+        "rating": { "type": "number" },
+        "ratingCount": { "type": "integer" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "email", "role"]
@@ -74,6 +76,10 @@
         "acceptedPrice": { "type": "number" },
         "category": { "type": "string" },
         "location": { "type": "object" },
+        "requesterRating": { "type": "number" },
+        "runnerRating": { "type": "number" },
+        "requesterReview": { "type": "string" },
+        "runnerReview": { "type": "string" },
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
       }

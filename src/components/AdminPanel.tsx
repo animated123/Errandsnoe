@@ -505,7 +505,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                   <Plus size={14} /> Add Service
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {services.map(s => (
                   <div key={s.id} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 relative group">
                     <button 
@@ -557,7 +557,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                   <Plus size={14} /> Add Featured
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {featured.map((f, idx) => (
                   <div key={f.id} className="bg-slate-50 rounded-[2.5rem] border border-slate-100 overflow-hidden relative group">
                     <div className="aspect-video relative">

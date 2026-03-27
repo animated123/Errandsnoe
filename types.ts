@@ -79,6 +79,7 @@ export interface User {
   };
   createdAt?: any;
   rating?: number;
+  ratingCount?: number;
   totalTasks?: number;
 }
 
@@ -121,6 +122,10 @@ export interface Errand {
   propertyListings?: PropertyListing[];
   priceRequests?: PriceRequest[];
   acceptedPrice?: number;
+  requesterRating?: number;
+  runnerRating?: number;
+  requesterReview?: string;
+  runnerReview?: string;
 }
 
 export interface Bid {

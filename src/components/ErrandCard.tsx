@@ -5,7 +5,7 @@ import { calculateDistance } from '../../services/firebaseService';
 
 interface ErrandCardProps {
   errand: Errand;
-  onClick: (errand: Errand) => void;
+  onClick: (errand: Errand, tab?: 'details' | 'map' | 'chat' | 'progress') => void;
   currentLocation: Coordinates | null;
 }
 
@@ -13,6 +13,11 @@ export default function ErrandCard({ errand, onClick, currentLocation }: ErrandC
   const distance = currentLocation && errand.pickupCoordinates 
     ? calculateDistance(currentLocation, errand.pickupCoordinates) 
     : null;
+
+  const handleMapClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClick(errand, 'map');
+  };
 
   const getStatusStyles = (status: ErrandStatus) => {
     switch (status) {
@@ -31,7 +36,7 @@ export default function ErrandCard({ errand, onClick, currentLocation }: ErrandC
   return (
     <div 
       onClick={() => onClick(errand)}
-      className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-soft hover:shadow-strong hover:border-black/5 transition-all cursor-pointer group relative overflow-hidden"
+      className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-soft hover:shadow-strong hover:border-black/5 transition-all cursor-pointer group relative overflow-hidden max-w-md mx-auto w-full"
     >
       <div className="flex items-center justify-between mb-4">
         <div className={`px-3 py-1 rounded-full text-micro border ${getStatusStyles(errand.status)}`}>
@@ -52,15 +57,38 @@ export default function ErrandCard({ errand, onClick, currentLocation }: ErrandC
         <p className="text-sm text-muted-foreground line-clamp-2 font-medium">
           {errand.description}
         </p>
+        {errand.status === ErrandStatus.COMPLETED && (errand.runnerRating || errand.requesterRating) && (
+          <div className="flex items-center gap-1 mt-2">
+            <div className="flex items-center gap-0.5">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Star 
+                  key={star} 
+                  size={10} 
+                  className={`${star <= (errand.runnerRating || errand.requesterRating || 0) ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} 
+                />
+              ))}
+            </div>
+            <span className="text-[10px] font-black text-amber-600 ml-1">
+              {(errand.runnerRating || errand.requesterRating)?.toFixed(1)}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-5">
-        <div className="bg-secondary/50 p-3 rounded-2xl flex flex-col gap-1">
+        <div className="bg-secondary/50 p-3 rounded-2xl flex flex-col gap-1 relative group/loc">
           <span className="text-micro text-muted-foreground">Location</span>
           <div className="flex items-center gap-1.5 text-sm font-bold truncate">
             <MapPin size={12} className="text-primary/40" />
             <span className="truncate">{errand.pickupLocation}</span>
           </div>
+          <button 
+            onClick={handleMapClick}
+            className="absolute top-2 right-2 p-1.5 bg-white rounded-lg shadow-sm opacity-0 group-hover/loc:opacity-100 transition-all hover:bg-black hover:text-white"
+            title="View on Map"
+          >
+            <ArrowUpRight size={10} />
+          </button>
         </div>
         <div className="bg-secondary/50 p-3 rounded-2xl flex flex-col gap-1">
           <span className="text-micro text-muted-foreground">Budget</span>
@@ -101,7 +129,7 @@ export default function ErrandCard({ errand, onClick, currentLocation }: ErrandC
 }
 
 export const ErrandCardSkeleton = () => (
-  <div className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-soft animate-pulse">
+  <div className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-soft animate-pulse max-w-md mx-auto w-full">
     <div className="flex items-center justify-between mb-4">
       <div className="w-20 h-6 bg-secondary rounded-full"></div>
       <div className="w-16 h-4 bg-secondary rounded-full"></div>

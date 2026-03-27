@@ -12,7 +12,7 @@ import {
   Home, Calculator, Tag, AlertCircle, Trash2, Waves, Check,
   Zap, CameraOff, Image as ImageIcon, Maximize2, ShieldAlert, ShoppingBag, 
   FileText, Activity, MessageCircle, LayoutGrid,
-  ChevronRight, Volume2, CheckCircle2, AlertTriangle, Droplets, Wifi, Shield, Car, ShieldCheck, Heart, Edit2, UserMinus,
+  ChevronRight, Volume2, CheckCircle2, AlertTriangle, Droplets, Wifi, Shield, Car, Footprints, ShieldCheck, Heart, Edit2, UserMinus,
   Settings, Palette, ImageIcon as LucideImageIcon, Save, Upload, Download,
   HelpCircle, PlusCircle, Filter, UserCircle,
   Mic, Square, Play, Pause, ChevronUp, ChevronDown, RefreshCw, ZoomIn
@@ -69,7 +69,8 @@ const ALL_SUGGESTIONS = [
 ];
 
 export default function App() {
-  const googleMapsApiKey = '';
+  const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+  const googlePlacesApiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || '';
   const [user, setUser] = useState<User | null>(null);
   const [showNearbyRunners, setShowNearbyRunners] = useState(false);
   const [showLoyaltyModal, setShowLoyaltyModal] = useState(false);
@@ -85,6 +86,7 @@ export default function App() {
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(true);
   const [nearbyRunners, setNearbyRunners] = useState<User[]>([]);
   const [selectedErrand, setSelectedErrand] = useState<Errand | null>(null);
+  const [initialDetailTab, setInitialDetailTab] = useState<'details' | 'map' | 'chat' | 'progress'>('details');
   const [isLogin, setIsLogin] = useState(true);
   const [appSettings, setAppSettings] = useState<AppSettings>({ primaryColor: '#000000' });
   const [formErrors, setFormErrors] = useState<any>({});
@@ -156,7 +158,7 @@ export default function App() {
           category: result.category as ErrandCategory,
           title: result.title,
           description: smartInput,
-          pickupLocation: result.location || ''
+          pickup: { name: result.location || '', coords: { lat: 0, lng: 0 } }
         });
         setActiveTab('create');
         setSmartInput('');
@@ -316,21 +318,9 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     
-    // RESTRICTION: Only admins get real-time Firestore updates for these collections
-    if (!user.isAdmin) {
-      console.log("Firestore access restricted to admin only. Using local state for this user.");
-      setIsLoadingErrands(false);
-      setIsLoadingAvailable(false);
-      return;
-    }
-    
     const unsubErrands = firebaseService.subscribeToUserErrands(user.id, user.role, (list) => {
       setErrands(list);
       setIsLoadingErrands(false);
-      if (selectedErrand) {
-        const updated = list.find(e => e.id === selectedErrand.id);
-        if (updated) setSelectedErrand(updated);
-      }
     });
 
     const unsubNotifs = firebaseService.subscribeToNotifications(user.id, setNotifications);
@@ -350,7 +340,19 @@ export default function App() {
       unsubNotifs();
       if (unsubAvailable) unsubAvailable();
     };
-  }, [user, selectedErrand]);
+  }, [user]);
+
+  useEffect(() => {
+    if (!selectedErrand) return;
+    
+    const allPossibleErrands = [...errands, ...availableErrands, ...allErrands];
+    const updated = allPossibleErrands.find(e => e.id === selectedErrand.id);
+    
+    // Use JSON.stringify for deep comparison to avoid infinite loops with new object references
+    if (updated && JSON.stringify(updated) !== JSON.stringify(selectedErrand)) {
+      setSelectedErrand(updated);
+    }
+  }, [errands, availableErrands, allErrands, selectedErrand]);
 
   useEffect(() => {
     if (!user || !user.isAdmin) return;
@@ -363,16 +365,6 @@ export default function App() {
       unsubRunners();
     };
   }, [user]);
-
-  useEffect(() => {
-    if (!user || !selectedErrand) return;
-    
-    // We don't need a separate subscription for selectedErrand because 
-    // subscribeToUserErrands already updates it if it's in the list.
-    // However, if we want to ensure it's always fresh even if not in the main list:
-    // const unsub = firebaseService.subscribeToErrand(selectedErrand.id, setSelectedErrand);
-    // return () => unsub();
-  }, [user, selectedErrand?.id, selectedErrand]);
 
   const filteredErrands = useMemo(() => {
     if (!proximityFilter || !currentLocation) return availableErrands;
@@ -404,15 +396,16 @@ export default function App() {
 
   const validateForm = () => {
     if (!errandForm.title) return "Title is required";
-    if (!errandForm.pickup) return "Location is required";
+    if (!errandForm.pickup?.name) return "Pickup location is required";
     if (errandForm.category === ErrandCategory.HOUSE_HUNTING && (!errandForm.budget || !errandForm.houseType)) return "Budget and house type are required";
-    if (errandForm.category === ErrandCategory.MAMA_FUA && !errandForm.isInHouse && !errandForm.dropoff) return "Delivery location is required for laundry pickup";
-    if (errandForm.category === ErrandCategory.GENERAL && !errandForm.isInHouse && !errandForm.dropoff) return "Drop-off is required";
+    if (errandForm.category === ErrandCategory.MAMA_FUA && !errandForm.isInHouse && !errandForm.dropoff?.name) return "Delivery location is required for laundry pickup";
+    if (errandForm.category === ErrandCategory.GENERAL && !errandForm.isInHouse && !errandForm.dropoff?.name) return "Drop-off is required";
     if (errandForm.category === ErrandCategory.TOWN_SERVICE && !errandForm.urgency) return "Urgency is required";
     if (errandForm.category === ErrandCategory.PACKAGE_DELIVERY && !errandForm.packageDescription) return "Package description is required";
     if (errandForm.category === ErrandCategory.SHOPPING && !errandForm.shoppingList) return "Shopping list is required";
     if (errandForm.category === ErrandCategory.GIKOMBA_STRAWS && !errandForm.marketSection) return "Market section is required";
-    if (!errandForm.budget) return "Budget is required";
+    
+    if (errandForm.category !== ErrandCategory.MAMA_FUA && !errandForm.budget) return "Budget is required";
     
     if (errandForm.category === ErrandCategory.GENERAL && errandForm.calculatedPrice && errandForm.budget < errandForm.calculatedPrice) {
       return `Budget cannot be less than the minimum charge of Ksh ${errandForm.calculatedPrice} for this distance.`;
@@ -426,10 +419,8 @@ export default function App() {
       category: oldErrand.category,
       title: oldErrand.title,
       description: oldErrand.description,
-      pickupLocation: oldErrand.pickupLocation,
-      pickupCoordinates: oldErrand.pickupCoordinates,
-      dropoffLocation: oldErrand.dropoffLocation,
-      dropoffCoordinates: oldErrand.dropoffCoordinates,
+      pickup: { name: oldErrand.pickupLocation, coords: oldErrand.pickupCoordinates },
+      dropoff: { name: oldErrand.dropoffLocation, coords: oldErrand.dropoffCoordinates },
       budget: oldErrand.budget,
       preferredRunnerId: oldErrand.runnerId
     });
@@ -444,17 +435,17 @@ export default function App() {
 
     // Check suspension
     if (user.isSuspended) {
-      alert(`Your account is suspended: ${user.suspensionReason}`);
+      setFormErrors({ ...formErrors, create: `Your account is suspended: ${user.suspensionReason}` });
       return;
     }
 
-    // Check phone verification (Non-blocking warning)
-    if (!user.phoneVerified) {
-      // We'll just show a warning in the UI instead of blocking
-    }
-
+    setFormErrors({ ...formErrors, create: null });
     const error = validateForm();
-    if (error) { alert(error); return; }
+    if (error) { 
+      setFormErrors({ ...formErrors, create: error });
+      return; 
+    }
+    
     setIsProcessing(true);
     try {
       let finalBudget = errandForm.budget;
@@ -487,7 +478,12 @@ export default function App() {
         marketSection: ''
       });
       setActiveTab('dashboard');
-    } catch (e) { alert("Post failed."); } finally { setIsProcessing(false); }
+    } catch (e: any) { 
+      console.error("Post errand error:", e);
+      setFormErrors({ ...formErrors, create: "Post failed: " + (e.message || "Unknown error") });
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   const handleRunnerComplete = async (id: string, comments: string, photo?: string) => {
@@ -611,9 +607,9 @@ export default function App() {
       }}
     >
       <TopProgressBar isLoading={isProcessing} />
-      <div className="max-w-5xl mx-auto space-y-3 px-2">
+      <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-8">
         {activeTab === 'dashboard' && (
-          <div className="space-y-4 pb-8">
+          <div className="space-y-8 pb-12">
             {/* Hero Section */}
             <div className="relative group">
               <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-violet-700 to-fuchsia-800 rounded-[2.5rem] blur-2xl opacity-20 group-hover:opacity-30 transition-opacity duration-500"></div>
@@ -650,16 +646,16 @@ export default function App() {
                   ) : (
                     <div className="flex gap-3">
                       <button 
-                        onClick={() => setActiveTab('create')}
+                        onClick={() => setActiveTab(user?.role === UserRole.RUNNER ? 'find' : 'create')}
                         className="px-6 py-3 bg-white text-indigo-600 rounded-2xl font-black uppercase text-xs tracking-widest shadow-strong hover:scale-105 active:scale-95 transition-all"
                       >
-                        Post New Task
+                        {user?.role === UserRole.RUNNER ? 'Find Errands' : 'Post New Task'}
                       </button>
                       <button 
-                        onClick={() => setActiveTab('find')}
+                        onClick={() => setActiveTab(user?.role === UserRole.RUNNER ? 'my-errands' : 'find')}
                         className="px-6 py-3 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-white/20 transition-all"
                       >
-                        Find Runners
+                        {user?.role === UserRole.RUNNER ? 'My Tasks' : 'Find Runners'}
                       </button>
                     </div>
                   )}
@@ -832,7 +828,8 @@ export default function App() {
                         <h4 className="text-xs truncate w-full font-black">{runner.name.split(' ')[0]}</h4>
                         <div className="flex items-center justify-center gap-1 text-amber-500">
                           <Star size={8} fill="currentColor" />
-                          <span className="text-[9px] font-black">{runner.rating || 5.0}</span>
+                          <span className="text-[9px] font-black">{(runner.rating || 0).toFixed(1)}</span>
+                          {runner.ratingCount && <span className="text-[7px] text-slate-400 font-bold">({runner.ratingCount})</span>}
                         </div>
                       </div>
                       <button 
@@ -856,10 +853,10 @@ export default function App() {
                 <h3 className="text-base">Recent Activity</h3>
                 <button onClick={() => setActiveTab('my-errands')} className="text-micro text-muted-foreground">View All</button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {isLoadingErrands ? (
-                  [1,2].map(i => <ErrandCardSkeleton key={`skeleton-recent-${i}`} />)
-                ) : errands.slice(0, 4).length === 0 ? (
+                  [1,2,3].map(i => <ErrandCardSkeleton key={`skeleton-recent-${i}`} />)
+                ) : errands.slice(0, 6).length === 0 ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-[2.5rem] border-2 border-dashed border-slate-100">
                     <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mx-auto mb-4">
                       <List size={32} className="text-slate-300" />
@@ -868,7 +865,7 @@ export default function App() {
                     <p className="text-micro text-slate-300">Your posted tasks will appear here</p>
                   </div>
                 ) : (
-                  errands.slice(0, 4).map(e => <ErrandCard key={e.id} errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />)
+                  errands.slice(0, 6).map(e => <ErrandCard key={e.id} errand={e} onClick={(errand, tab) => { setSelectedErrand(errand); setInitialDetailTab(tab || 'details'); }} currentLocation={currentLocation} />)
                 )}
               </div>
             </div>
@@ -901,9 +898,9 @@ export default function App() {
                     {errands.length} Total
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 px-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 px-2">
                   {isLoadingErrands ? (
-                    [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-errands-${i}`} />)
+                    [1,2,3,4,5,6].map(i => <ErrandCardSkeleton key={`skeleton-errands-${i}`} />)
                   ) : errands.length === 0 ? (
                     <div className="col-span-full p-12 md:p-24 text-center bg-white rounded-[3rem] border border-slate-100 shadow-soft animate-in fade-in zoom-in-95">
                       <div className="w-28 h-28 bg-indigo-50 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 relative overflow-hidden">
@@ -935,7 +932,7 @@ export default function App() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.3 }}
                       >
-                        <ErrandCard errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />
+                        <ErrandCard errand={e} onClick={(errand, tab) => { setSelectedErrand(errand); setInitialDetailTab(tab || 'details'); }} currentLocation={currentLocation} />
                       </motion.div>
                     ))
                   )}
@@ -957,9 +954,11 @@ export default function App() {
             user={user}
             errandForm={errandForm} 
             setErrandForm={setErrandForm} 
-            postErrand={(e: any) => protectedAction(() => postErrand(e))} 
+            postErrand={(e: any) => { e.preventDefault(); protectedAction(() => postErrand(e)); }} 
             loading={isProcessing} 
             errors={formErrors} 
+            googleMapsApiKey={googleMapsApiKey}
+            googlePlacesApiKey={googlePlacesApiKey}
           />
         )}
         {activeTab === 'find' && (
@@ -990,8 +989,14 @@ export default function App() {
             </div>
 
             <div className="px-2">
-              <div className="rounded-[2.5rem] overflow-hidden border border-slate-100 shadow-soft mb-8">
-                <MapView errands={filteredErrands} onSelectErrand={setSelectedErrand} height="350px" userLocation={currentLocation} />
+              <div className="rounded-[2.5rem] overflow-hidden border border-slate-100 shadow-soft mb-8 h-[350px]">
+                <MapComponent 
+                  errands={filteredErrands} 
+                  runners={[]} 
+                  center={currentLocation || undefined}
+                  onSelectErrand={setSelectedErrand}
+                  apiKey={googleMapsApiKey}
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1019,7 +1024,7 @@ export default function App() {
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <ErrandCard errand={e} onClick={setSelectedErrand} currentLocation={currentLocation} />
+                      <ErrandCard errand={e} onClick={(errand, tab) => { setSelectedErrand(errand); setInitialDetailTab(tab || 'details'); }} currentLocation={currentLocation} />
                     </motion.div>
                   ))
                 )}
@@ -1058,6 +1063,7 @@ export default function App() {
                 errands={allErrands.filter(e => e.status === ErrandStatus.PENDING || e.status === ErrandStatus.BIDDING)} 
                 runners={onlineRunners}
                 center={currentLocation || undefined}
+                apiKey={googleMapsApiKey}
               />
             </div>
 
@@ -1144,7 +1150,13 @@ export default function App() {
                       )}
 
                       <div className="grid grid-cols-3 gap-2 mb-4">
-                        <div className="bg-slate-50 p-3 rounded-2xl"><p className="text-[7px] font-black uppercase text-slate-400">Rating</p><p className="text-sm font-black text-slate-900">{(user.rating || 5).toFixed(1)}</p></div>
+                        <div className="bg-slate-50 p-3 rounded-2xl">
+                          <p className="text-[7px] font-black uppercase text-slate-400">Rating</p>
+                          <div className="flex items-center justify-center gap-0.5">
+                            <p className="text-sm font-black text-slate-900">{(user.rating || 0).toFixed(1)}</p>
+                            {user.ratingCount && <span className="text-[8px] text-slate-400 font-bold">({user.ratingCount})</span>}
+                          </div>
+                        </div>
                         <div className="bg-slate-50 p-3 rounded-2xl"><p className="text-[7px] font-black uppercase text-slate-400">Earnings</p><p className="text-sm font-black text-emerald-600">Ksh {user.balanceOnHold || 0}</p></div>
                         <div className="bg-slate-50 p-3 rounded-2xl"><p className="text-[7px] font-black uppercase text-slate-400">Wallet</p><p className="text-sm font-black text-indigo-600">Ksh {user.walletBalance || 0}</p></div>
                       </div>
@@ -1187,12 +1199,20 @@ export default function App() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <button onClick={() => setProfileView('edit')} className="py-3.5 bg-black text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:opacity-90 transition-all">Edit Profile</button>
-                        <button onClick={() => setProfileView('history')} className="py-3.5 border border-slate-200 text-slate-600 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition-all">Task History</button>
+                        <button onClick={() => setProfileView('history')} className="py-3.5 border border-slate-200 text-slate-600 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition-all">
+                          {user.role === UserRole.REQUESTER ? 'My Errands' : 'Task History'}
+                        </button>
                       </div>
 
                       {user.role === UserRole.REQUESTER && (
                         <button onClick={() => setProfileView('apply-runner')} className="w-full mt-3 py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
                           <Briefcase size={16} /> Become a Runner
+                        </button>
+                      )}
+
+                      {user.role === UserRole.RUNNER && (
+                        <button onClick={() => setActiveTab('find')} className="w-full mt-3 py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                          <Search size={16} /> Find an Errand
                         </button>
                       )}
 
@@ -1389,6 +1409,9 @@ export default function App() {
           setShowPhoneVerificationModal={setShowPhoneVerificationModal}
           setShowEmailVerificationModal={setShowEmailVerificationModal}
           setAuthModalMode={setAuthModalMode}
+          googleMapsApiKey={googleMapsApiKey}
+          initialTab={initialDetailTab}
+          currentLocation={currentLocation}
         />
       )}
       {selectedFeaturedService && (
@@ -1396,7 +1419,14 @@ export default function App() {
           service={selectedFeaturedService} 
           onClose={() => setSelectedFeaturedService(null)} 
           onOrder={(s) => {
-            setErrandForm({ ...errandForm, category: s.category, title: s.title, description: s.description });
+            setErrandForm({ 
+              ...errandForm, 
+              category: s.category, 
+              title: s.title, 
+              description: s.description,
+              pickup: null,
+              dropoff: null
+            });
             setActiveTab('create');
             setSelectedFeaturedService(null);
           }}
@@ -2990,20 +3020,6 @@ const ErrandStatusTimeline: React.FC<{ status: ErrandStatus, category?: ErrandCa
   );
 };
 
-const MapView: React.FC<{ errands?: Errand[], onSelectErrand?: (e: Errand) => void, height?: string, userLocation?: Coordinates | null }> = ({ errands = [], onSelectErrand, height = "400px", userLocation }) => {
-  return (
-    <div style={{ height }} className="rounded-[2rem] flex flex-col items-center justify-center bg-slate-100 text-slate-400 font-bold text-[10px] uppercase tracking-widest p-8 text-center gap-3 border-2 border-dashed border-slate-200">
-      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-slate-400 mb-2 shadow-sm">
-        <MapIcon size={32} />
-      </div>
-      <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Interactive Map Placeholder</h3>
-      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-relaxed max-w-[200px]">
-        Map integration has been removed for static mode. In a live environment, this would show real-time runner locations and errand pins.
-      </p>
-    </div>
-  );
-};
-
 const RunnerApplicationFlow: React.FC<{ user: User, onBack: () => void }> = ({ user, onBack }) => {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -3099,7 +3115,8 @@ const RunnerApplicationFlow: React.FC<{ user: User, onBack: () => void }> = ({ u
   );
 };
 
-const ChatSection: React.FC<{ errandId: string, messages: ChatMessage[], user: User | null, onSendMessage: (text: string) => void }> = ({ errandId, messages, user, onSendMessage }) => {
+const ChatSection: React.FC<{ errandId: string, user: User | null, onSendMessage: (text: string) => void }> = ({ errandId, user, onSendMessage }) => {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -3110,6 +3127,11 @@ const ChatSection: React.FC<{ errandId: string, messages: ChatMessage[], user: U
     "Thank you!",
     "On my way"
   ];
+
+  useEffect(() => {
+    const unsub = firebaseService.subscribeToErrandChat(errandId, setMessages);
+    return () => unsub();
+  }, [errandId]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -3796,11 +3818,61 @@ const TaskHistory: React.FC<{ user: User, onBack: () => void, onSelectErrand: (e
   );
 };
 
+const RatingInput: React.FC<{ onRate: (rating: number, review: string) => void, targetName: string }> = ({ onRate, targetName }) => {
+  const [rating, setRating] = useState(0);
+  const [review, setReview] = useState('');
+  const [hover, setHover] = useState(0);
+
+  return (
+    <div className="bg-amber-50 p-6 rounded-[2rem] border border-amber-100 space-y-4 animate-in fade-in slide-in-from-bottom-4">
+      <div className="text-center space-y-1">
+        <h4 className="text-sm font-black text-slate-900">Rate your experience with {targetName}</h4>
+        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Your feedback helps the community</p>
+      </div>
+      
+      <div className="flex justify-center gap-2 py-2">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            type="button"
+            className="transition-all hover:scale-110 active:scale-95"
+            onClick={() => setRating(star)}
+            onMouseEnter={() => setHover(star)}
+            onMouseLeave={() => setHover(0)}
+          >
+            <Star
+              size={32}
+              className={`${(hover || rating) >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`}
+            />
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        value={review}
+        onChange={(e) => setReview(e.target.value)}
+        placeholder="Write a short review (optional)..."
+        className="w-full p-4 bg-white rounded-2xl border border-amber-100 text-sm font-medium focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none min-h-[100px] resize-none"
+      />
+
+      <button
+        onClick={() => onRate(rating, review)}
+        disabled={rating === 0}
+        className="w-full py-4 bg-amber-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-200"
+      >
+        Submit Rating
+      </button>
+    </div>
+  );
+};
+
 const ErrandDetailScreenLocal: React.FC<any> = ({ 
   selectedErrand, setSelectedErrand, user, setUser, refresh, 
   onRunnerComplete, onCompleteErrand, loading,
   setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal,
-  setShowPhoneVerificationModal, setShowEmailVerificationModal, setAuthModalMode
+  setShowPhoneVerificationModal, setShowEmailVerificationModal, setAuthModalMode,
+  googleMapsApiKey, initialTab = 'details',
+  currentLocation
 }) => {
   const [comments, setComments] = useState(selectedErrand?.runnerComments || '');
   const [photo, setPhoto] = useState<string | null>(selectedErrand?.completionPhoto || null);
@@ -3817,8 +3889,19 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
   const [showProofs, setShowProofs] = useState(false);
   const [proofLabel, setProofLabel] = useState('');
   const [isUploadingProof, setIsUploadingProof] = useState(false);
-  const [activeDetailTab, setActiveDetailTab] = useState<'details' | 'map' | 'chat' | 'progress'>('details');
+  const [activeDetailTab, setActiveDetailTab] = useState<'details' | 'map' | 'chat' | 'progress'>(initialTab);
   const [showBidModal, setShowBidModal] = useState(false);
+  const [travelMode, setTravelMode] = useState<'DRIVE' | 'WALK'>('DRIVE');
+  const [routeSummary, setRouteSummary] = useState<{ distance: string; duration: string } | null>(null);
+
+  useEffect(() => {
+    setActiveDetailTab(initialTab);
+    setRouteSummary(null);
+  }, [initialTab, selectedErrand?.id]);
+
+  useEffect(() => {
+    setRouteSummary(null);
+  }, [activeDetailTab, travelMode]);
   
   const isOverdue = selectedErrand?.deadlineTimestamp && 
                     Date.now() > selectedErrand.deadlineTimestamp && 
@@ -4032,13 +4115,21 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
   const REASSIGN_REASONS = ["Wait time too long", "Budget bid so high", "Communication issues", "Runner changed their mind", "Other"];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex flex-col items-center justify-end md:justify-center p-0 md:p-6">
+    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-md flex flex-col items-center md:items-end justify-end md:justify-center overflow-hidden">
       {showCamera && <CameraCapture onCapture={handleCameraCapture} onClose={handleCloseCamera} />}
       {fullScreenImage && <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6" onClick={() => setFullScreenImage(null)}><img src={fullScreenImage} className="max-w-full max-h-full object-contain rounded-xl" alt="Proof" /></div>}
-      <div className="w-full max-w-2xl bg-white rounded-t-[3rem] md:rounded-[3rem] shadow-2xl overflow-y-auto max-h-[95vh] animate-in slide-in-from-bottom-6">
+      <motion.div 
+        initial={{ opacity: 0, y: 100, x: 0 }}
+        animate={{ opacity: 1, y: 0, x: 0 }}
+        exit={{ opacity: 0, y: 100, x: 0 }}
+        className="w-full max-w-2xl md:max-w-xl h-[90vh] md:h-full bg-white rounded-t-[3rem] md:rounded-t-none md:rounded-l-[3rem] shadow-2xl overflow-y-auto relative"
+      >
         <header className="px-6 py-5 border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-10">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSelectedErrand(null)} className="p-2.5 bg-slate-100 rounded-xl text-slate-500"><ChevronLeft size={20} /></button>
+            <button onClick={() => setSelectedErrand(null)} className="flex items-center gap-2 p-2.5 bg-slate-100 rounded-xl text-slate-500 hover:bg-slate-200 transition-colors">
+              <X size={20} />
+              <span className="text-[10px] font-black uppercase tracking-widest pr-1 hidden sm:inline">Close</span>
+            </button>
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
                 <h3 className="font-black text-slate-900 text-base truncate leading-tight">{selectedErrand.title}</h3>
@@ -4071,9 +4162,61 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
               </button>
             ))}
         </div>
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 pb-24">
           {activeDetailTab === 'details' && (
             <>
+              {selectedErrand.status === ErrandStatus.COMPLETED && (
+                <div className="space-y-4">
+                  {isRequester && !selectedErrand.runnerRating && (
+                    <RatingInput 
+                      targetName={selectedErrand.runnerName || 'the runner'} 
+                      onRate={async (rating, review) => {
+                        try {
+                          await firebaseService.rateRunner(selectedErrand.id, selectedErrand.runnerId!, rating, review);
+                          alert("Thank you for your rating!");
+                          refresh();
+                        } catch (e) { alert("Failed to submit rating."); }
+                      }}
+                    />
+                  )}
+                  {isRunner && !selectedErrand.requesterRating && (
+                    <RatingInput 
+                      targetName={selectedErrand.requesterName || 'the requester'} 
+                      onRate={async (rating, review) => {
+                        try {
+                          await firebaseService.rateRequester(selectedErrand.id, selectedErrand.requesterId, rating, review);
+                          alert("Thank you for your rating!");
+                          refresh();
+                        } catch (e) { alert("Failed to submit rating."); }
+                      }}
+                    />
+                  )}
+
+                  {selectedErrand.runnerRating && (
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Runner Rating</span>
+                        <div className="flex items-center gap-0.5">
+                          {[1,2,3,4,5].map(s => <Star key={s} size={10} className={`${s <= selectedErrand.runnerRating! ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />)}
+                        </div>
+                      </div>
+                      {selectedErrand.runnerReview && <p className="text-xs text-slate-600 font-medium italic">"{selectedErrand.runnerReview}"</p>}
+                    </div>
+                  )}
+                  {selectedErrand.requesterRating && (
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Requester Rating</span>
+                        <div className="flex items-center gap-0.5">
+                          {[1,2,3,4,5].map(s => <Star key={s} size={10} className={`${s <= selectedErrand.requesterRating! ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />)}
+                        </div>
+                      </div>
+                      {selectedErrand.requesterReview && <p className="text-xs text-slate-600 font-medium italic">"{selectedErrand.requesterReview}"</p>}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {(selectedErrand.status === ErrandStatus.ACCEPTED || selectedErrand.status === ErrandStatus.VERIFYING) && (
             <div className="flex gap-2">
               <button onClick={handleSOS} className="flex-1 py-3 bg-red-50 text-red-600 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 border border-red-100 hover:bg-red-100 transition-all">
@@ -4457,11 +4600,11 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                   
                   <div className="space-y-3">
                     <p className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Proposals Received</p>
-                    {selectedErrand.bids.length === 0 ? (
+                    {(selectedErrand.bids || []).length === 0 ? (
                       <div className="p-10 border-2 border-dashed border-slate-100 rounded-[1.5rem] text-center text-slate-300 font-bold">Waiting for runners...</div>
                     ) : (
                       <div className="grid grid-cols-1 gap-3">
-                        {selectedErrand.bids.map((b: any) => (
+                        {(selectedErrand.bids || []).map((b: any) => (
                           <div key={`${b.runnerId}-${b.timestamp}`} className="bg-white border border-slate-100 p-4 rounded-2xl flex items-center justify-between shadow-sm">
                             <div className="flex items-center gap-3">
                               <UserAvatar src={null} name={b.runnerName} className="w-10 h-10 rounded-xl" />
@@ -4505,24 +4648,104 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
             </>
           )}
 
-          {activeDetailTab === 'map' && selectedErrand.pickupCoordinates && selectedErrand.dropoffCoordinates && (
-            <div className="h-[60vh] w-full rounded-[2rem] overflow-hidden border border-slate-200 shadow-sm animate-in zoom-in-95">
-              <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center text-slate-400">
-                <MapIcon size={48} className="mb-4 opacity-20" />
-                <span className="text-xs font-black uppercase tracking-widest">Map View (Static Mode)</span>
-                <p className="text-[10px] mt-2 max-w-[200px] text-center opacity-60">Pickup and Dropoff locations would be shown here in a live environment.</p>
+          {activeDetailTab === 'map' && (
+            <div className="space-y-4 animate-in zoom-in-95">
+              <div className="flex flex-col gap-3">
+                {isRunner && selectedErrand.status !== ErrandStatus.COMPLETED && selectedErrand.status !== ErrandStatus.CANCELLED && (
+                  <div className="flex items-center justify-between bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Travel Mode</span>
+                      <span className="text-xs font-bold text-slate-900">Choose how you'll get there</span>
+                    </div>
+                    <div className="flex bg-slate-100 p-1 rounded-2xl">
+                      <button 
+                        onClick={() => setTravelMode('DRIVE')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          travelMode === 'DRIVE' ? 'bg-white text-black shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                      >
+                        <Car size={14} />
+                        Car
+                      </button>
+                      <button 
+                        onClick={() => setTravelMode('WALK')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          travelMode === 'WALK' ? 'bg-white text-black shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                      >
+                        <Footprints size={14} />
+                        Foot
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {routeSummary && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                        <Navigation size={18} />
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Distance</p>
+                        <p className="text-sm font-black text-slate-900">{routeSummary.distance}</p>
+                      </div>
+                    </div>
+                    <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                        <Clock size={18} />
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Est. Time</p>
+                        <p className="text-sm font-black text-slate-900">{routeSummary.duration}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className="h-[60vh] w-full rounded-[2rem] overflow-hidden border border-slate-200 shadow-sm relative">
+                <MapComponent 
+                  errands={[selectedErrand]} 
+                  runners={[]} 
+                  center={currentLocation || selectedErrand.pickupCoordinates || undefined}
+                  zoom={15}
+                  apiKey={googleMapsApiKey}
+                  showRoute={true}
+                  travelMode={travelMode}
+                  onRouteCalculated={setRouteSummary}
+                  customRoute={isRunner && currentLocation && selectedErrand.status !== ErrandStatus.COMPLETED && selectedErrand.status !== ErrandStatus.CANCELLED ? {
+                    origin: currentLocation,
+                    destination: selectedErrand.pickupCoordinates
+                  } : undefined}
+                />
               </div>
             </div>
           )}
 
-          {activeDetailTab === 'chat' && (selectedErrand.status === ErrandStatus.ACCEPTED || selectedErrand.status === ErrandStatus.VERIFYING) && (isRequester || isRunner) && (
-            <div ref={chatSectionRef}>
+          {activeDetailTab === 'chat' && selectedErrand.runnerId && (isRequester || isRunner) && (
+            <div ref={chatSectionRef} className="space-y-6">
               <ChatSection 
                 errandId={selectedErrand.id} 
-                messages={selectedErrand.chat || []} 
                 user={user} 
                 onSendMessage={handleSendMessage} 
               />
+              <div className="flex flex-col gap-3">
+                {isRequester && (selectedErrand.status === ErrandStatus.ACCEPTED || selectedErrand.status === ErrandStatus.VERIFYING) && (
+                  <button 
+                    onClick={handleCancelErrand}
+                    className="w-full py-4 border-2 border-dashed border-red-100 text-red-500 rounded-2xl flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all"
+                  >
+                    <Trash2 size={14} /> Cancel Errand
+                  </button>
+                )}
+                <button 
+                  onClick={() => setSelectedErrand(null)}
+                  className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                >
+                  <X size={14} /> Close Details
+                </button>
+              </div>
             </div>
           )}
           {activeDetailTab === 'details' && (
@@ -4577,6 +4800,12 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                       <UserMinus size={16} /> {selectedErrand.reassignmentRequested ? 'Requested' : 'Reassign'}
                     </button>
                   </div>
+                  <button 
+                    onClick={handleCancelErrand}
+                    className="w-full py-4 border-2 border-dashed border-red-100 text-red-500 rounded-2xl flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest hover:bg-red-50 transition-all"
+                  >
+                    <Trash2 size={14} /> Cancel Errand
+                  </button>
                   <p className="text-[9px] text-slate-400 text-center uppercase font-bold px-4">You can reschedule or reassign the runner if needed.</p>
                 </div>
               )}
@@ -4748,7 +4977,7 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                 />
               )}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };
