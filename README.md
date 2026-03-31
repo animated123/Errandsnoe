@@ -8,7 +8,7 @@ A comprehensive errand-running platform for local tasks, laundry, and more. This
 - [npm](https://www.npmjs.com/) (v9 or higher)
 - A Firebase project (for Firestore and Authentication)
 - (Optional) Cloudinary account (for image uploads)
-- (Optional) SMS API account (Textsasa/Talksasa)
+- (Optional) SMS API account (Talksasa)
 - (Optional) SMTP server (for email notifications)
 
 ## Local Setup
@@ -37,7 +37,7 @@ cp .env.example .env
 Key variables:
 - `VITE_GOOGLE_MAPS_API_KEY`: Your Google Maps API key.
 - `CLOUDINARY_URL`: Your Cloudinary connection string (e.g., `cloudinary://api_key:api_secret@cloud_name`).
-- `TEXTSASA_API_TOKEN` / `TALKSASA_API_TOKEN`: Your SMS API token.
+- `TALKSASA_API_TOKEN`: Your SMS API token.
 - `SMTP_*`: Your email server credentials.
 
 ### 4. Firebase Configuration

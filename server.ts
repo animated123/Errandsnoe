@@ -94,7 +94,7 @@ async function startServer() {
   // In-memory OTP storage (for production, use Redis or Firestore)
   const otpStore = new Map<string, { otp: string, expiresAt: number }>();
 
-  // Helper to normalize phone numbers for Kenya (Talksasa/Textsasa)
+  // Helper to normalize phone numbers for Kenya (Talksasa)
   const normalizePhone = (phone: string) => {
     if (!phone) return phone;
     let normalized = phone.replace(/\s+/g, '').replace('+', '');
@@ -106,13 +106,13 @@ async function startServer() {
     return normalized;
   };
 
-  // SMS Proxy Route for Textsasa
+  // SMS Proxy Route for Talksasa
   app.post("/api/sms/send", async (req, res) => {
     const { recipient, message, phone } = req.body;
     const targetPhone = normalizePhone(phone || recipient);
-    const token = process.env.TEXTSASA_API_TOKEN || process.env.TALKSASA_API_TOKEN;
-    const endpoint = process.env.TEXTSASA_API_ENDPOINT || process.env.TALKSASA_API_ENDPOINT || "https://api.textsasa.com/api/v1/";
-    const senderId = process.env.TEXTSASA_SENDER_ID || process.env.TALKSASA_SENDER_ID || "ErrandRun";
+    const token = process.env.TALKSASA_API_TOKEN;
+    const endpoint = process.env.TALKSASA_API_ENDPOINT || "https://bulksms.talksasa.com/api/v3/";
+    const senderId = process.env.TALKSASA_SENDER_ID || "ErrandRun";
 
     if (!token) {
       return res.status(500).json({ error: "SMS API token is not configured" });
@@ -135,7 +135,6 @@ async function startServer() {
         },
         body: JSON.stringify({
           recipient: targetPhone, // For Talksasa
-          phone: targetPhone,     // For Textsasa
           message,
           sender_id: senderId
         })
@@ -170,9 +169,9 @@ async function startServer() {
     otpStore.set(targetPhone, { otp, expiresAt });
     console.log(`[OTP] Stored code for ${targetPhone}: ${otp}`);
 
-    const token = process.env.TEXTSASA_API_TOKEN || process.env.TALKSASA_API_TOKEN;
-    const endpoint = process.env.TEXTSASA_API_ENDPOINT || process.env.TALKSASA_API_ENDPOINT || "https://api.textsasa.com/api/v1/";
-    const senderId = process.env.TEXTSASA_SENDER_ID || process.env.TALKSASA_SENDER_ID || "ErrandRun";
+    const token = process.env.TALKSASA_API_TOKEN;
+    const endpoint = process.env.TALKSASA_API_ENDPOINT || "https://bulksms.talksasa.com/api/v3/";
+    const senderId = process.env.TALKSASA_SENDER_ID || "ErrandRun";
 
     if (!token) {
       console.log(`[DEV] SMS API token not found. OTP for ${targetPhone}: ${otp}`);
@@ -193,7 +192,6 @@ async function startServer() {
         },
         body: JSON.stringify({
           recipient: targetPhone, // For Talksasa
-          phone: targetPhone,     // For Textsasa
           message,
           sender_id: senderId
         })
@@ -417,7 +415,6 @@ async function startServer() {
         const commonKeys = [
           "VITE_GOOGLE_MAPS_API_KEY", "VITE_GOOGLE_PLACES_API_KEY", "VITE_GOOGLE_ROUTES_API_KEY",
           "CLOUDINARY_URL", 
-          "TEXTSASA_API_TOKEN", "TEXTSASA_API_ENDPOINT", "TEXTSASA_SENDER_ID",
           "TALKSASA_API_TOKEN", "TALKSASA_API_ENDPOINT", "TALKSASA_SENDER_ID",
           "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"
         ];
