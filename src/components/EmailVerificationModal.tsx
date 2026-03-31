@@ -22,8 +22,8 @@ export default function EmailVerificationModal({ user, onClose, onSuccess }: Ema
     try {
       await firebaseService.generateEmailVerificationCode(user.id, user.email);
       setSent(true);
-    } catch (err) {
-      setError("Failed to send verification email.");
+    } catch (err: any) {
+      setError(err.message || "Failed to send verification email.");
     } finally {
       setLoading(false);
     }

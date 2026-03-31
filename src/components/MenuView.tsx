@@ -13,7 +13,7 @@ export default function MenuView({ listings, onSelect, isLoading }: MenuViewProp
   const categories = [
     { id: ErrandCategory.MAMA_FUA, label: 'Laundry', icon: Waves, color: 'bg-blue-50 text-blue-600' },
     { id: ErrandCategory.MARKET_SHOPPING, label: 'Market', icon: ShoppingBag, color: 'bg-emerald-50 text-emerald-600' },
-    { id: ErrandCategory.HOUSE_HUNTING, label: 'Housing', icon: Home, color: 'bg-amber-50 text-amber-600' },
+    { id: ErrandCategory.HOUSE_HUNTING, label: 'Saka Keja', icon: Home, color: 'bg-amber-50 text-amber-600' },
     { id: ErrandCategory.PACKAGE_DELIVERY, label: 'Delivery', icon: Package, color: 'bg-rose-50 text-rose-600' },
     { id: ErrandCategory.TOWN_SERVICE, label: 'Town', icon: Car, color: 'bg-slate-50 text-slate-600' },
     { id: ErrandCategory.SHOPPING, label: 'Shopping', icon: ShoppingCart, color: 'bg-purple-50 text-purple-600' },

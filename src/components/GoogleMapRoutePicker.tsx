@@ -28,11 +28,22 @@ interface RouteSummary {
 interface GoogleMapRoutePickerProps {
   apiKey: string;
   placesApiKey: string;
+  geocodingApiKey?: string;
+  mapId?: string;
   onConfirm: (pickup: LocationData, dropoff: LocationData, summary: RouteSummary) => void;
   className?: string;
+  mode?: 'route' | 'single';
 }
 
-export default function GoogleMapRoutePicker({ apiKey, placesApiKey, onConfirm, className }: GoogleMapRoutePickerProps) {
+export default function GoogleMapRoutePicker({ 
+  apiKey, 
+  placesApiKey, 
+  geocodingApiKey,
+  mapId,
+  onConfirm, 
+  className, 
+  mode = 'route' 
+}: GoogleMapRoutePickerProps) {
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
   const [routeSummary, setRouteSummary] = useState<RouteSummary | null>(null);
@@ -43,8 +54,39 @@ export default function GoogleMapRoutePicker({ apiKey, placesApiKey, onConfirm, 
   }, []);
 
   const handleConfirm = () => {
-    if (pickup && dropoff && routeSummary) {
-      onConfirm(pickup, dropoff, routeSummary);
+    if (mode === 'single') {
+      if (pickup) {
+        onConfirm(pickup, pickup, { distance: '0 km', duration: '0 mins', distanceValue: 0, durationValue: 0 });
+      }
+    } else {
+      if (pickup && dropoff && routeSummary) {
+        onConfirm(pickup, dropoff, routeSummary);
+      }
+    }
+  };
+
+  const handleLocateMe = async (coords: google.maps.LatLngLiteral) => {
+    setMapCenter(coords);
+    
+    // Reverse geocode to get address for the first input
+    try {
+      const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.lat},${coords.lng}&key=${geocodingApiKey || placesApiKey}`);
+      const data = await response.json();
+      if (data.results && data.results.length > 0) {
+        const result = data.results[0];
+        const locationData: LocationData = {
+          address: result.formatted_address,
+          coords: coords,
+          placeId: result.place_id
+        };
+        setPickup(locationData);
+        if (mode === 'single') {
+          setDropoff(locationData);
+          setRouteSummary({ distance: '0 km', duration: '0 mins', distanceValue: 0, durationValue: 0 });
+        }
+      }
+    } catch (error) {
+      console.error('Reverse geocoding error:', error);
     }
   };
 
@@ -56,39 +98,52 @@ export default function GoogleMapRoutePicker({ apiKey, placesApiKey, onConfirm, 
           <div className="absolute top-6 left-6 right-6 z-10 space-y-3 pointer-events-none">
             <div className="pointer-events-auto">
               <AutocompleteInput 
-                label="Pickup Location" 
-                placeholder="Where should the runner start?" 
-                onPlaceSelect={(data) => setPickup(data)}
+                label={mode === 'single' ? "Your Location" : "Pickup Location"} 
+                placeholder={mode === 'single' ? "Where is the laundry?" : "Where should the runner start?"} 
+                onPlaceSelect={(data) => {
+                  setPickup(data);
+                  if (mode === 'single') {
+                    setDropoff(data);
+                    setRouteSummary({ distance: '0 km', duration: '0 mins', distanceValue: 0, durationValue: 0 });
+                  }
+                }}
                 icon={<MapPin className="text-indigo-600" size={18} />}
                 apiKey={placesApiKey}
+                initialValue={pickup?.address}
               />
             </div>
-            <div className="pointer-events-auto">
-              <AutocompleteInput 
-                label="Drop-off Destination" 
-                placeholder="Where is the errand going?" 
-                onPlaceSelect={(data) => setDropoff(data)}
-                icon={<Target className="text-rose-600" size={18} />}
-                apiKey={placesApiKey}
-              />
-            </div>
+            {mode === 'route' && (
+              <div className="pointer-events-auto">
+                <AutocompleteInput 
+                  label="Drop-off Destination" 
+                  placeholder="Where is the errand going?" 
+                  onPlaceSelect={(data) => setDropoff(data)}
+                  icon={<Target className="text-rose-600" size={18} />}
+                  apiKey={placesApiKey}
+                  initialValue={dropoff?.address}
+                />
+              </div>
+            )}
           </div>
 
           {/* Map Area */}
           <div className="flex-1 relative">
             <Map
-              defaultCenter={mapCenter}
+              center={mapCenter}
+              onCenterChanged={(ev) => setMapCenter(ev.detail.center)}
               defaultZoom={13}
-              mapId="bf51a910020fa25a" // Example Map ID for Advanced Markers
+              mapId={mapId || "bf51a910020fa25a"} // Example Map ID for Advanced Markers
               disableDefaultUI={true}
               className="w-full h-full"
             >
-              <Directions 
-                pickup={pickup} 
-                dropoff={dropoff} 
-                onRouteCalculated={handleRouteCalculated} 
-                apiKey={apiKey}
-              />
+              {mode === 'route' && (
+                <Directions 
+                  pickup={pickup} 
+                  dropoff={dropoff} 
+                  onRouteCalculated={handleRouteCalculated} 
+                  apiKey={apiKey}
+                />
+              )}
               
               {pickup && (
                 <AdvancedMarker position={pickup.coords}>
@@ -96,7 +151,7 @@ export default function GoogleMapRoutePicker({ apiKey, placesApiKey, onConfirm, 
                 </AdvancedMarker>
               )}
               
-              {dropoff && (
+              {mode === 'route' && dropoff && (
                 <AdvancedMarker position={dropoff.coords}>
                   <Pin background={'#e11d48'} borderColor={'#ffffff'} glyphColor={'#ffffff'} />
                 </AdvancedMarker>
@@ -104,13 +159,13 @@ export default function GoogleMapRoutePicker({ apiKey, placesApiKey, onConfirm, 
 
               <MapControl position={ControlPosition.RIGHT_BOTTOM}>
                 <div className="m-4 flex flex-col gap-2">
-                  <LocateMeButton onLocate={(coords) => setMapCenter(coords)} />
+                  <LocateMeButton onLocate={handleLocateMe} />
                 </div>
               </MapControl>
             </Map>
 
             {/* Route Summary Card */}
-            {routeSummary && (
+            {mode === 'route' && routeSummary && (
               <div className="absolute bottom-24 left-6 right-6 md:left-auto md:right-6 md:w-80 bg-white/90 backdrop-blur-xl p-6 rounded-3xl border border-white/20 shadow-2xl animate-in slide-in-from-bottom-10 duration-500">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Errand Summary</h3>
@@ -140,20 +195,20 @@ export default function GoogleMapRoutePicker({ apiKey, placesApiKey, onConfirm, 
             <div className="absolute bottom-6 left-6 right-6">
               <button
                 onClick={handleConfirm}
-                disabled={!pickup || !dropoff || !routeSummary}
+                disabled={mode === 'single' ? !pickup : (!pickup || !dropoff || !routeSummary)}
                 className={`w-full py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-2xl transition-all flex items-center justify-center gap-3 ${
-                  pickup && dropoff && routeSummary
+                  (mode === 'single' ? pickup : (pickup && dropoff && routeSummary))
                     ? 'bg-black text-white active:scale-95 hover:shadow-indigo-500/20'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                 }`}
               >
-                {pickup && dropoff && routeSummary ? (
+                {(mode === 'single' ? pickup : (pickup && dropoff && routeSummary)) ? (
                   <>
-                    Confirm Errand Details
+                    Confirm Location Details
                     <CheckCircle2 size={18} />
                   </>
                 ) : (
-                  'Select Locations to Continue'
+                  'Select Location to Continue'
                 )}
               </button>
             </div>
@@ -164,18 +219,25 @@ export default function GoogleMapRoutePicker({ apiKey, placesApiKey, onConfirm, 
   );
 }
 
-function AutocompleteInput({ label, placeholder, onPlaceSelect, icon, apiKey }: { 
+function AutocompleteInput({ label, placeholder, onPlaceSelect, icon, apiKey, initialValue }: { 
   label: string; 
   placeholder: string; 
   onPlaceSelect: (data: LocationData) => void;
   icon: React.ReactNode;
   apiKey: string;
+  initialValue?: string;
 }) {
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(initialValue || '');
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (initialValue !== undefined) {
+      setInputValue(initialValue);
+    }
+  }, [initialValue]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -269,7 +331,44 @@ function AutocompleteInput({ label, placeholder, onPlaceSelect, icon, apiKey }: 
               placeholder={placeholder}
               className="w-full bg-transparent border-none p-0 font-black text-slate-900 text-sm placeholder:text-slate-300 outline-none"
             />
-            {loading && <Loader2 size={14} className="animate-spin text-indigo-600" />}
+            {loading ? (
+              <Loader2 size={14} className="animate-spin text-indigo-600" />
+            ) : (
+              <button 
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                      async (position) => {
+                        const coords = {
+                          lat: position.coords.latitude,
+                          lng: position.coords.longitude
+                        };
+                        try {
+                          const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.lat},${coords.lng}&key=${apiKey}`);
+                          const data = await response.json();
+                          if (data.results && data.results.length > 0) {
+                            const result = data.results[0];
+                            onPlaceSelect({
+                              address: result.formatted_address,
+                              coords: coords,
+                              placeId: result.place_id
+                            });
+                          }
+                        } catch (error) {
+                          console.error('Reverse geocoding error:', error);
+                        }
+                      }
+                    );
+                  }
+                }}
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-indigo-600 transition-colors"
+                title="Use My Location"
+              >
+                <Navigation size={14} />
+              </button>
+            )}
           </div>
         </div>
       </div>

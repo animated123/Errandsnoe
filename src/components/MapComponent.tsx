@@ -7,7 +7,7 @@ import {
   InfoWindow,
   useMap
 } from '@vis.gl/react-google-maps';
-import { Errand, User, Coordinates } from '../../types';
+import { Errand, User, Coordinates, ErrandStatus, PropertyListing } from '../../types';
 
 interface MapComponentProps {
   errands: Errand[];
@@ -15,7 +15,9 @@ interface MapComponentProps {
   center?: Coordinates;
   zoom?: number;
   onSelectErrand?: (errand: Errand) => void;
+  onSelectProperty?: (property: PropertyListing) => void;
   apiKey: string;
+  routesApiKey?: string;
   showRoute?: boolean;
   travelMode?: 'DRIVE' | 'WALK';
   customRoute?: { origin: Coordinates; destination: Coordinates };
@@ -153,13 +155,15 @@ export default function MapComponent({
   center, 
   zoom = 13, 
   onSelectErrand, 
+  onSelectProperty,
   apiKey, 
+  routesApiKey,
   showRoute = false,
   travelMode = 'DRIVE',
   customRoute,
   onRouteCalculated
 }: MapComponentProps) {
-  const [selectedMarker, setSelectedMarker] = useState<{ type: 'errand' | 'runner', id: string } | null>(null);
+  const [selectedMarker, setSelectedMarker] = useState<{ type: 'errand' | 'runner' | 'property', id: string } | null>(null);
 
   const mapCenter = (center && typeof center.lat === 'number' && typeof center.lng === 'number') 
     ? { lat: center.lat, lng: center.lng } 
@@ -175,6 +179,28 @@ export default function MapComponent({
       routeToDisplay = { origin: singleErrand.pickupCoordinates, destination: singleErrand.dropoffCoordinates };
     }
   }
+
+  const getStatusColor = (status: ErrandStatus) => {
+    switch (status) {
+      case ErrandStatus.PENDING:
+      case ErrandStatus.BIDDING:
+        return '#3b82f6'; // Blue
+      case ErrandStatus.ASSIGNED:
+      case ErrandStatus.IN_PROGRESS:
+      case ErrandStatus.ACCEPTED:
+        return '#10b981'; // Green
+      case ErrandStatus.VERIFYING:
+      case ErrandStatus.REVIEW:
+        return '#eab308'; // Yellow
+      case ErrandStatus.COMPLETED:
+        return '#94a3b8'; // Gray
+      case ErrandStatus.CANCELLED:
+      case ErrandStatus.FAILED:
+        return '#ef4444'; // Red
+      default:
+        return '#4f46e5'; // Indigo (Default)
+    }
+  };
 
   return (
     <div className="w-full h-full min-h-[400px] rounded-[2.5rem] overflow-hidden shadow-soft border border-slate-100 bg-slate-50 relative">
@@ -194,7 +220,7 @@ export default function MapComponent({
             <Directions 
               origin={routeToDisplay.origin} 
               destination={routeToDisplay.destination} 
-              apiKey={apiKey} 
+              apiKey={routesApiKey || apiKey} 
               travelMode={travelMode}
               onRouteCalculated={onRouteCalculated}
             />
@@ -210,7 +236,7 @@ export default function MapComponent({
                   onSelectErrand?.(errand);
                 }}
               >
-                <Pin background={'#4f46e5'} glyphColor={'#ffffff'} borderColor={'#ffffff'} />
+                <Pin background={getStatusColor(errand.status)} glyphColor={'#ffffff'} borderColor={'#ffffff'} />
                 {selectedMarker?.type === 'errand' && selectedMarker.id === errand.id && (
                   <InfoWindow
                     position={{ lat: errand.pickupCoordinates.lat, lng: errand.pickupCoordinates.lng }}
@@ -232,6 +258,36 @@ export default function MapComponent({
             >
               <Pin background={'#e11d48'} glyphColor={'#ffffff'} borderColor={'#ffffff'} />
             </AdvancedMarker>
+          )}
+
+          {/* Property Listings Pins */}
+          {errands.map(errand => 
+            errand.propertyListings?.map(listing => (
+              listing.coords && (
+                <AdvancedMarker
+                  key={`property-${listing.id}`}
+                  position={{ lat: listing.coords.lat, lng: listing.coords.lng }}
+                  onClick={() => {
+                    setSelectedMarker({ type: 'property', id: listing.id });
+                    onSelectProperty?.(listing);
+                  }}
+                >
+                  <Pin background={'#f59e0b'} glyphColor={'#ffffff'} borderColor={'#ffffff'} />
+                  {selectedMarker?.type === 'property' && selectedMarker.id === listing.id && (
+                    <InfoWindow
+                      position={{ lat: listing.coords.lat, lng: listing.coords.lng }}
+                      onCloseClick={() => setSelectedMarker(null)}
+                    >
+                      <div className="p-1 min-w-[100px]">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-900 mb-1">{listing.title}</p>
+                        <p className="text-[8px] font-bold text-amber-600 uppercase tracking-tighter">Ksh {listing.price.toLocaleString()}</p>
+                        <img src={listing.imageUrl} alt={listing.title} className="w-full h-12 object-cover rounded-md mt-1" />
+                      </div>
+                    </InfoWindow>
+                  )}
+                </AdvancedMarker>
+              )
+            ))
           )}
 
           {runners.map((runner) => (
@@ -261,12 +317,24 @@ export default function MapComponent({
 
       <div className="absolute bottom-6 right-6 z-[10] bg-white/90 backdrop-blur-md p-4 rounded-2xl border border-slate-100 shadow-xl space-y-2">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-indigo-600 rounded-full"></div>
-          <span className="text-[8px] font-black uppercase tracking-widest text-slate-600">Errands ({errands.length})</span>
+          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+          <span className="text-[8px] font-black uppercase tracking-widest text-slate-600">Pending/Bidding</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+          <span className="text-[8px] font-black uppercase tracking-widest text-slate-600">Active/Accepted</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+          <span className="text-[8px] font-black uppercase tracking-widest text-slate-600">Verifying</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+          <span className="text-[8px] font-black uppercase tracking-widest text-slate-600">Houses Found</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-          <span className="text-[8px] font-black uppercase tracking-widest text-slate-600">Runners ({runners.length})</span>
+          <span className="text-[8px] font-black uppercase tracking-widest text-slate-600">Runners</span>
         </div>
       </div>
     </div>

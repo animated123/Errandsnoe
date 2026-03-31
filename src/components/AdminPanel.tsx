@@ -7,11 +7,12 @@ import {
   X, Settings, ImageIcon, ShoppingBag, Download, Check, MessageCircle, FileText,
   Search, UserCheck, CheckCircle, Briefcase, Navigation, Info, DollarSign, 
   Droplets, Wifi, Shield, Car, Star, ChevronRight, ChevronLeft, Camera, 
-  ShieldCheck, ArrowRight, Sparkles, Map, MapPin, Mail
+  ShieldCheck, ArrowRight, Sparkles, Map, MapPin, Mail, ReceiptText
 } from 'lucide-react';
 import LoadingSpinner from './LoadingSpinner';
 import SupportChatView from './SupportChatView';
 import UserAvatar from './UserAvatar';
+import { motion } from 'motion/react';
 
 interface AdminPanelProps {
   user: User;
@@ -34,11 +35,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   userRoleFilter, 
   setUserRoleFilter 
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'users' | 'services' | 'featured' | 'system' | 'branding' | 'support' | 'sms' | 'email'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'users' | 'services' | 'featured' | 'system' | 'branding' | 'support' | 'sms' | 'email' | 'pricing'>('overview');
   const [applications, setApplications] = useState<RunnerApplication[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [services, setServices] = useState<ServiceListing[]>([]);
   const [featured, setFeatured] = useState<FeaturedService[]>([]);
+  const [errands, setErrands] = useState<Errand[]>([]);
   const [loading, setLoading] = useState(false);
   const [systemSettings, setSystemSettings] = useState<AppSettings>(settings);
   const [supportChats, setSupportChats] = useState<any[]>([]);
@@ -65,6 +67,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     };
     loadData();
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'pricing') {
+      const unsub = firebaseService.subscribeToAllErrands((allErrands) => {
+        setErrands(allErrands);
+      });
+      return () => unsub();
+    }
   }, [activeTab]);
 
   useEffect(() => {
@@ -141,22 +152,38 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           <h2 className="text-4xl font-black text-slate-900 tracking-tight">Admin Control</h2>
           <p className="text-micro text-slate-400 mt-1">System Management & Oversight</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setActiveTab('overview')} className={`px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'overview' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-400 border border-slate-100'}`}>Overview</button>
-          <button onClick={() => setActiveTab('support')} className={`px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all relative ${activeTab === 'support' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-400 border border-slate-100'}`}>
-            Support
-            {supportChats.some(c => c.unreadByAdmin) && <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white" />}
-          </button>
-          <button onClick={() => setActiveTab('system')} className={`px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'system' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-400 border border-slate-100'}`}>System</button>
+        <div className="bg-slate-100/50 p-1 rounded-2xl flex items-center gap-1">
+          {[
+            { id: 'overview', label: 'Overview' },
+            { id: 'support', label: 'Support', badge: supportChats.some(c => c.unreadByAdmin) },
+            { id: 'system', label: 'System' }
+          ].map(tab => (
+            <button 
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)} 
+              className={`relative px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id ? 'text-black' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              {activeTab === tab.id && (
+                <motion.div 
+                  layoutId="admin-top-tab"
+                  className="absolute inset-0 bg-white rounded-xl shadow-sm border border-slate-200/50"
+                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                />
+              )}
+              <span className="relative z-10">{tab.label}</span>
+              {tab.badge && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white z-20" />}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+      <div className="bg-white/50 p-1.5 rounded-[2rem] border border-slate-100 flex gap-1 overflow-x-auto no-scrollbar shadow-sm">
         {[
           { id: 'applications', label: 'Applications', icon: <ShieldAlert size={14} />, count: applications.length },
           { id: 'users', label: 'User Directory', icon: <Settings size={14} />, count: users.length },
           { id: 'services', label: 'Service List', icon: <ShoppingBag size={14} />, count: services.length },
           { id: 'featured', label: 'Featured', icon: <Plus size={14} />, count: featured.length },
+          { id: 'pricing', label: 'Pricing Logic', icon: <DollarSign size={14} /> },
           { id: 'sms', label: 'SMS Config', icon: <MessageSquare size={14} /> },
           { id: 'email', label: 'Email Config', icon: <Mail size={14} /> },
           { id: 'branding', label: 'Branding', icon: <ImageIcon size={14} /> }
@@ -164,9 +191,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           <button 
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all ${activeTab === tab.id ? 'bg-black text-white' : 'bg-white text-slate-400 border border-slate-100 hover:bg-slate-50'}`}
+            className={`relative flex items-center gap-2 px-6 py-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${activeTab === tab.id ? 'text-black' : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'}`}
           >
-            {tab.icon} {tab.label} {tab.count !== undefined && <span className="opacity-50">({tab.count})</span>}
+            {activeTab === tab.id && (
+              <motion.div 
+                layoutId="admin-sub-tab"
+                className="absolute inset-0 bg-white rounded-[1.5rem] shadow-sm border border-slate-200/50"
+                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              />
+            )}
+            <span className="relative z-10">{tab.icon}</span>
+            <span className="relative z-10">{tab.label}</span>
+            {tab.count !== undefined && <span className="relative z-10 opacity-50 ml-1">({tab.count})</span>}
           </button>
         ))}
       </div>
@@ -644,7 +680,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           if (res.success) {
                             alert("SMS Sent Successfully!");
                           } else {
-                            alert("Failed to send SMS: " + JSON.stringify(res.error));
+                            alert("Failed to send SMS.");
                           }
                         }}
                         className="w-full py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100"
@@ -712,12 +748,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           const msg = (document.getElementById('test-email-message') as HTMLTextAreaElement).value;
                           if (!to || !subject || !msg) return alert("To, subject and message required");
                           
-                          const { emailService } = await import('../../services/firebaseService');
-                          const res = await emailService.sendEmail(to, subject, msg);
-                          if (res.success) {
-                            alert("Email Sent Successfully!");
-                          } else {
-                            alert("Failed to send email: " + JSON.stringify(res.error));
+                          try {
+                            const { emailService } = await import('../../services/firebaseService');
+                            const res = await emailService.sendEmail(to, subject, msg);
+                            if (res.success) {
+                              alert("Email Sent Successfully!");
+                            } else {
+                              alert("Failed to send email.");
+                            }
+                          } catch (err: any) {
+                            const errorMsg = err.message || JSON.stringify(err);
+                            alert("Failed to send email: " + errorMsg);
                           }
                         }}
                         className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-100"
@@ -761,6 +802,99 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
               <button onClick={handleUpdateSettings} className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl flex items-center justify-center gap-3">
                 <Save size={18} /> Update Branding
               </button>
+            </div>
+          )}
+
+          {activeTab === 'pricing' && (
+            <div className="p-10 space-y-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-black uppercase tracking-widest text-slate-400">AI Pricing Oversight</h3>
+                  <p className="text-xs text-slate-500 mt-1">Review and override AI-calculated errand costs</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {errands.filter(e => e.aiEstimationBreakdown).length === 0 ? (
+                  <div className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-sm">No AI-estimated errands found</div>
+                ) : (
+                  errands.filter(e => e.aiEstimationBreakdown).map(errand => (
+                    <div key={errand.id} className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center">
+                            <ReceiptText size={24} />
+                          </div>
+                          <div>
+                            <h4 className="text-lg font-black text-slate-900">{errand.title}</h4>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">ID: {errand.id} • {errand.category}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-black text-indigo-600">Ksh {errand.budget}</p>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Estimation</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                        {[
+                          { label: 'Base Fee', value: `Ksh ${errand.aiEstimationBreakdown?.baseFee}` },
+                          { label: 'Size Multiplier', value: `Ksh ${errand.aiEstimationBreakdown?.sizeMultiplier}` },
+                          { label: 'Work Scale', value: `${errand.aiEstimationBreakdown?.workScale}/5`, highlight: true },
+                          { label: 'Loc. Premium', value: `Ksh ${errand.aiEstimationBreakdown?.locationPremium}` },
+                          { label: 'Urgency Mult.', value: `${errand.aiEstimationBreakdown?.urgencyMultiplier}x` },
+                          { label: 'Final Total', value: `Ksh ${errand.aiEstimationBreakdown?.total}`, bold: true }
+                        ].map((stat, i) => (
+                          <div key={i} className="bg-white p-4 rounded-2xl border border-slate-100">
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
+                            <p className={`text-sm font-black ${stat.highlight ? 'text-indigo-600' : stat.bold ? 'text-slate-900' : 'text-slate-600'}`}>{stat.value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-4 pt-4 border-t border-slate-200/50">
+                        <div className="flex-1">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Override AI Work Scale (1-5)</p>
+                          <div className="flex gap-2">
+                            {[1, 2, 3, 4, 5].map(scale => (
+                              <button
+                                key={scale}
+                                onClick={async () => {
+                                  if (!errand.aiEstimationBreakdown) return;
+                                  const breakdown = errand.aiEstimationBreakdown;
+                                  const newTotal = (breakdown.baseFee + (breakdown.sizeMultiplier * scale) + breakdown.locationPremium) * breakdown.urgencyMultiplier;
+                                  
+                                  await firebaseService.updateErrand(errand.id, {
+                                    aiEstimatedScale: scale,
+                                    budget: Math.round(newTotal),
+                                    aiEstimationBreakdown: {
+                                      ...breakdown,
+                                      workScale: scale,
+                                      total: newTotal
+                                    }
+                                  });
+                                  alert(`Scale overridden to ${scale}. New budget: Ksh ${Math.round(newTotal)}`);
+                                }}
+                                className={`w-10 h-10 rounded-xl font-black text-xs transition-all ${
+                                  errand.aiEstimationBreakdown?.workScale === scale 
+                                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' 
+                                    : 'bg-white border border-slate-200 text-slate-400 hover:border-indigo-200'
+                                }`}
+                              >
+                                {scale}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-center gap-3 max-w-xs">
+                          <Info size={16} className="text-amber-600 shrink-0" />
+                          <p className="text-[10px] font-bold text-amber-900 leading-tight">Overriding the scale will automatically recalculate the total budget based on the pricing formula.</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
 

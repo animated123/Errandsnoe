@@ -1,7 +1,7 @@
 import React from 'react';
-import { Home, List, PlusCircle, Map, UserCircle, Bell, LogOut, Menu, X, Search } from 'lucide-react';
+import { Home, List, PlusCircle, Map, UserCircle, Bell, LogOut, Menu, X, Search, ShieldAlert } from 'lucide-react';
 import { User, AppNotification, UserRole } from '../../types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface LayoutProps {
   user: User | null;
@@ -182,6 +182,29 @@ export default function Layout({
 
         {/* Main Content */}
         <main className="flex-1 pb-32 md:pb-12">
+          {user && (!user.phoneVerified || !user.emailVerified) && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              className="bg-amber-50 border-b border-amber-100 px-6 py-3 flex items-center justify-between gap-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center flex-shrink-0">
+                  <ShieldAlert size={18} />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-amber-900 uppercase tracking-tight">Account Not Verified</p>
+                  <p className="text-[10px] font-bold text-amber-700">Please verify your phone and email to access all features.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setActiveTab('active')}
+                className="px-4 py-2 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-amber-700 transition-colors whitespace-nowrap"
+              >
+                Verify Now
+              </button>
+            </motion.div>
+          )}
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -197,43 +220,53 @@ export default function Layout({
         </main>
 
         {/* Bottom Navigation (Mobile Only) */}
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-md md:hidden">
-        <nav className="glass rounded-[2.5rem] p-2 flex items-center justify-between shadow-strong">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            
-            if (item.primary) {
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md md:hidden">
+          <nav className="glass rounded-[2.5rem] p-2 flex items-center justify-between shadow-2xl border border-white/20 backdrop-blur-2xl">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              
+              if (item.primary) {
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-xl relative group ${
+                      isActive ? 'bg-black text-white scale-110 -translate-y-4' : 'bg-black text-white hover:scale-105 active:scale-95'
+                    }`}
+                  >
+                    <Icon size={28} strokeWidth={2.5} />
+                    {!isActive && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white animate-bounce" />
+                    )}
+                  </button>
+                );
+              }
+
               return (
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-strong ${
-                    isActive ? 'bg-black text-white scale-110 -translate-y-2' : 'bg-black text-white hover:scale-105 active:scale-95'
+                  className={`relative flex-1 flex flex-col items-center gap-1 py-2.5 transition-all rounded-3xl z-10 ${
+                    isActive ? 'text-black' : 'text-slate-400 hover:text-slate-600'
                   }`}
                 >
-                  <Icon size={28} strokeWidth={2.5} />
+                  {isActive && (
+                    <motion.div 
+                      layoutId="mobile-nav-active"
+                      className="absolute inset-0 bg-slate-100/80 rounded-[2rem] -z-10"
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                    />
+                  )}
+                  <Icon size={20} strokeWidth={isActive ? 2.5 : 2} className="relative z-20" />
+                  <span className={`text-[9px] font-black uppercase tracking-widest transition-all relative z-20 ${isActive ? 'opacity-100' : 'opacity-60'}`}>
+                    {item.label}
+                  </span>
                 </button>
               );
-            }
-
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`flex-1 flex flex-col items-center gap-1 py-2 transition-all rounded-2xl ${
-                  isActive ? 'text-black bg-secondary/50' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/30'
-                }`}
-              >
-                <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
-                <span className={`text-[10px] font-black uppercase tracking-widest transition-all ${isActive ? 'opacity-100' : 'opacity-60'}`}>
-                  {item.label}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+            })}
+          </nav>
+        </div>
     </div>
   </div>
   );

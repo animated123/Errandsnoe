@@ -22,10 +22,8 @@ export default function PhoneVerificationModal({ user, onClose, onSuccess }: Pho
     setLoading(true);
     setDevMode(false);
     try {
-      const result = await firebaseService.sendPhoneVerificationCode(phone);
-      if (result.message?.includes('dev mode')) {
-        setDevMode(true);
-      }
+      const res = await firebaseService.sendPhoneVerificationCode(phone);
+      if (res.devMode) setDevMode(true);
       setStep('code');
     } catch (err: any) {
       alert(err.message || "Failed to send verification code.");

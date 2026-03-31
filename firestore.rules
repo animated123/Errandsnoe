@@ -30,8 +30,33 @@ service cloud.firestore {
     //   - pickupCoordinates: map (required)
     //   - dropoffLocation: string (optional)
     //   - dropoffCoordinates: map (optional)
+    //   - shoppingItems: list (optional)
+    //   - shoppingList: string (optional)
+    //   - houseType: string (optional)
+    //   - rentBudgetMin: number (optional)
+    //   - rentBudgetMax: number (optional)
+    //   - amenities: list (optional)
+    //   - targetEstates: list (optional)
+    //   - runnerTasks: list (optional)
     //   - createdAt: string (required)
     //   - updatedAt: string (required)
+    //
+    // Collection: featured_services
+    // Document ID: {id}
+    // Fields:
+    //   - title: string (required)
+    //   - description: string (required)
+    //   - imageUrl: string (required)
+    //   - price: number (required)
+    //   - category: string (required)
+    //
+    // Collection: service_listings
+    // Document ID: {id}
+    // Fields:
+    //   - title: string (required)
+    //   - price: number (required)
+    //   - category: string (required)
+    //   - description: string (required)
     //
     // ===============================================================
 
@@ -64,6 +89,23 @@ service cloud.firestore {
     function isValidErrand(data) {
       return data.keys().hasAll(['title', 'requesterId', 'requesterName', 'status', 'budget', 'category', 'pickupLocation', 'pickupCoordinates']) &&
              data.requesterId == request.auth.uid;
+    }
+
+    function isValidFeaturedService(data) {
+      return data.keys().hasAll(['title', 'description', 'imageUrl', 'price', 'category']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.description is string && data.description.size() < 500 &&
+             data.imageUrl is string && isValidUrl(data.imageUrl) &&
+             data.price is number && data.price >= 0 &&
+             data.category is string;
+    }
+
+    function isValidServiceListing(data) {
+      return data.keys().hasAll(['title', 'price', 'category', 'description']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.price is number && data.price >= 0 &&
+             data.category is string &&
+             data.description is string && data.description.size() < 500;
     }
 
     // ===============================================================
@@ -104,6 +146,18 @@ service cloud.firestore {
         (request.resource.data.bids != null) ||
         isAdmin()
       );
+    }
+
+    // FEATURED SERVICES: Authenticated users can read, only admins can write.
+    match /featured_services/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidFeaturedService(request.resource.data);
+    }
+
+    // SERVICE LISTINGS: Authenticated users can read, only admins can write.
+    match /service_listings/{id} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidServiceListing(request.resource.data);
     }
 
     // NOTIFICATIONS: Only the user can read their own notifications.

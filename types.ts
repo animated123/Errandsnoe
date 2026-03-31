@@ -83,6 +83,13 @@ export interface User {
   totalTasks?: number;
 }
 
+export enum PaymentMethod {
+  CASH_ON_DELIVERY = 'Cash on Delivery',
+  MOBILE_MONEY = 'Mobile Money',
+  BANK_TRANSFER = 'Bank Transfer',
+  CREDIT_CARD = 'Credit Card'
+}
+
 export interface Errand {
   id: string;
   title: string;
@@ -108,12 +115,34 @@ export interface Errand {
   houseType?: string;
   moveInDate?: string;
   additionalRequirements?: string;
-  urgency?: 'normal' | 'high' | 'urgent';
+  urgency?: 'Normal' | 'High' | 'Urgent';
   packageDescription?: string;
   packageCost?: number;
   shoppingList?: string;
   marketSection?: string;
   maxShoppingBudget?: number;
+  shoppingBudget?: number;
+  shoppingItems?: string[];
+  // Saka Keja (House Hunting) specific fields
+  rentBudgetMin?: number;
+  rentBudgetMax?: number;
+  amenities?: string[];
+  targetEstates?: string[];
+  commuteReferencePoint?: string;
+  commuteDistanceEnabled?: boolean;
+  numberOfHousesViewed?: number;
+  runnerTasks?: string[];
+  propertyType?: string;
+  vibe?: string;
+  aiEstimatedScale?: number;
+  aiEstimationBreakdown?: {
+    baseFee: number;
+    sizeMultiplier: number;
+    workScale: number;
+    locationPremium: number;
+    urgencyMultiplier: number;
+    total: number;
+  };
   calculatedPrice?: number;
   voiceNoteUrl?: string;
   checklist?: string[];
@@ -126,6 +155,25 @@ export interface Errand {
   runnerRating?: number;
   requesterReview?: string;
   runnerReview?: string;
+  receiptUrl?: string;
+  paymentMethod?: string;
+  // Mama Fua specific fields
+  loadSize?: 'Small' | 'Medium' | 'Large';
+  serviceTypes?: string[];
+  detergentProvided?: boolean;
+  waterAvailability?: 'Constant' | 'Buying';
+  hangingPreference?: 'Indoor' | 'Outdoor';
+  mamaFuaBreakdown?: {
+    loadSizeLabel: string;
+    loadSizeCost: number;
+    materialLabel: string;
+    materialCost: number;
+    urgencyLabel: string;
+    urgencyMultiplier: number;
+    detergentCost: number;
+    baseFee: number;
+    total: number;
+  };
 }
 
 export interface Bid {
@@ -227,9 +275,12 @@ export interface PropertyListing {
   title: string;
   price: number;
   location: string;
+  coords: { lat: number; lng: number };
   type: string;
   imageUrl: string;
   agentRating?: number;
   amenities?: string[];
   description?: string;
+  runnerView?: string;
+  createdAt?: any;
 }

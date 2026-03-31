@@ -14,8 +14,8 @@ import {
   FileText, Activity, MessageCircle, LayoutGrid,
   ChevronRight, Volume2, CheckCircle2, AlertTriangle, Droplets, Wifi, Shield, Car, Footprints, ShieldCheck, Heart, Edit2, UserMinus,
   Settings, Palette, ImageIcon as LucideImageIcon, Save, Upload, Download,
-  HelpCircle, PlusCircle, Filter, UserCircle,
-  Mic, Square, Play, Pause, ChevronUp, ChevronDown, RefreshCw, ZoomIn
+  HelpCircle, PlusCircle, Filter, UserCircle, Send,
+  Mic, Square, Play, Pause, ChevronUp, ChevronDown, RefreshCw, ZoomIn, Users
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -26,7 +26,7 @@ import {
   ErrandCategory, UserRole, Errand, ErrandStatus, PriceRequest, 
   LoyaltyLevel, ChatMessage, Coordinates, AppNotification, PropertyListing
 } from './types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { firebaseService, calculateDistance, formatFirebaseError, formatPhoneDisplay, normalizePhone, cloudinaryService, geminiService } from './services/firebaseService';
 import Layout from './src/components/Layout';
 import ErrandCard, { ErrandCardSkeleton, Skeleton } from './src/components/ErrandCard';
@@ -71,6 +71,7 @@ const ALL_SUGGESTIONS = [
 export default function App() {
   const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
   const googlePlacesApiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY || '';
+  const googleRoutesApiKey = import.meta.env.VITE_GOOGLE_ROUTES_API_KEY || googleMapsApiKey;
   const [user, setUser] = useState<User | null>(null);
   const [showNearbyRunners, setShowNearbyRunners] = useState(false);
   const [showLoyaltyModal, setShowLoyaltyModal] = useState(false);
@@ -79,14 +80,26 @@ export default function App() {
   const [showComparisonModal, setShowComparisonModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, _setActiveTab] = useState('dashboard');
+  
+  const setActiveTab = (tab: string) => {
+    if (user && (tab === 'create' || tab === 'find')) {
+      if (!user.phoneVerified || !user.emailVerified) {
+        setProfileView('edit');
+        _setActiveTab('active');
+        alert("Please verify your account (phone and email) before posting or finding errands.");
+        return;
+      }
+    }
+    _setActiveTab(tab);
+  };
   const [errands, setErrands] = useState<Errand[]>([]);
   const [isLoadingErrands, setIsLoadingErrands] = useState(true);
   const [availableErrands, setAvailableErrands] = useState<Errand[]>([]);
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(true);
   const [nearbyRunners, setNearbyRunners] = useState<User[]>([]);
   const [selectedErrand, setSelectedErrand] = useState<Errand | null>(null);
-  const [initialDetailTab, setInitialDetailTab] = useState<'details' | 'map' | 'chat' | 'progress'>('details');
+  const [initialDetailTab, setInitialDetailTab] = useState<'details' | 'map' | 'chat' | 'progress' | 'finish'>('details');
   const [isLogin, setIsLogin] = useState(true);
   const [appSettings, setAppSettings] = useState<AppSettings>({ primaryColor: '#000000' });
   const [formErrors, setFormErrors] = useState<any>({});
@@ -192,7 +205,8 @@ export default function App() {
     packageDescription: '',
     packageCost: 0,
     shoppingList: '',
-    marketSection: ''
+    marketSection: '',
+    paymentMethod: 'Cash on Delivery'
   });
   const [authForm, setAuthForm] = useState({ name: '', email: '', phone: '', password: '', role: UserRole.REQUESTER });
 
@@ -396,16 +410,21 @@ export default function App() {
 
   const validateForm = () => {
     if (!errandForm.title) return "Title is required";
-    if (!errandForm.pickup?.name) return "Pickup location is required";
-    if (errandForm.category === ErrandCategory.HOUSE_HUNTING && (!errandForm.budget || !errandForm.houseType)) return "Budget and house type are required";
+    if (!errandForm.pickup?.name && errandForm.category !== ErrandCategory.HOUSE_HUNTING) return "Pickup location is required";
+    if (errandForm.category === ErrandCategory.HOUSE_HUNTING) {
+      if (!errandForm.houseType) return "House type is required";
+      if (!errandForm.rentBudgetMax) return "Rent budget is required";
+      if (!errandForm.targetEstates || errandForm.targetEstates.length === 0) return "At least one target estate is required";
+      if (errandForm.commuteDistanceEnabled && !errandForm.commuteReferencePoint) return "Commute reference point is required when distance filter is enabled";
+    }
     if (errandForm.category === ErrandCategory.MAMA_FUA && !errandForm.isInHouse && !errandForm.dropoff?.name) return "Delivery location is required for laundry pickup";
     if (errandForm.category === ErrandCategory.GENERAL && !errandForm.isInHouse && !errandForm.dropoff?.name) return "Drop-off is required";
     if (errandForm.category === ErrandCategory.TOWN_SERVICE && !errandForm.urgency) return "Urgency is required";
     if (errandForm.category === ErrandCategory.PACKAGE_DELIVERY && !errandForm.packageDescription) return "Package description is required";
-    if (errandForm.category === ErrandCategory.SHOPPING && !errandForm.shoppingList) return "Shopping list is required";
+    if ((errandForm.category === ErrandCategory.SHOPPING || errandForm.category === ErrandCategory.MARKET_SHOPPING) && (!errandForm.shoppingItems || errandForm.shoppingItems.length === 0)) return "Shopping items are required";
     if (errandForm.category === ErrandCategory.GIKOMBA_STRAWS && !errandForm.marketSection) return "Market section is required";
     
-    if (errandForm.category !== ErrandCategory.MAMA_FUA && !errandForm.budget) return "Budget is required";
+    if (errandForm.category !== ErrandCategory.MAMA_FUA && errandForm.category !== ErrandCategory.HOUSE_HUNTING && !errandForm.budget) return "Budget is required";
     
     if (errandForm.category === ErrandCategory.GENERAL && errandForm.calculatedPrice && errandForm.budget < errandForm.calculatedPrice) {
       return `Budget cannot be less than the minimum charge of Ksh ${errandForm.calculatedPrice} for this distance.`;
@@ -433,6 +452,14 @@ export default function App() {
     e.preventDefault();
     if (!user) return;
 
+    // Check verification
+    if (!user.phoneVerified || !user.emailVerified) {
+      setFormErrors({ ...formErrors, create: "Please verify your account (phone and email) before posting errands." });
+      setProfileView('edit');
+      setActiveTab('menu'); // Redirect to profile/settings
+      return;
+    }
+
     // Check suspension
     if (user.isSuspended) {
       setFormErrors({ ...formErrors, create: `Your account is suspended: ${user.suspensionReason}` });
@@ -450,13 +477,21 @@ export default function App() {
     try {
       let finalBudget = errandForm.budget;
       if (errandForm.category === ErrandCategory.MAMA_FUA) finalBudget = (errandForm.laundryBaskets || 1) * (errandForm.pricePerBasket || 250);
+      if (errandForm.category === ErrandCategory.HOUSE_HUNTING) {
+        finalBudget = errandForm.calculatedPrice || 500;
+        // For House Hunting, if no pickup is selected, we use the first target estate as location name
+        // and a default coordinate if none picked.
+      }
       
       const data = { 
         ...errandForm, 
         budget: finalBudget, 
+        calculatedPrice: errandForm.calculatedPrice || 0,
+        shoppingItems: errandForm.shoppingItems || [],
+        shoppingList: errandForm.shoppingList || '',
         requesterId: user.id, 
         requesterName: user.name, 
-        pickupLocation: errandForm.pickup?.name || '', 
+        pickupLocation: errandForm.pickup?.name || (errandForm.category === ErrandCategory.HOUSE_HUNTING && errandForm.targetEstates?.[0] ? `Search in ${errandForm.targetEstates[0]}` : ''), 
         pickupCoordinates: errandForm.pickup?.coords || { lat: 0, lng: 0 }, 
         dropoffLocation: errandForm.isInHouse ? (errandForm.pickup?.name || '') : (errandForm.dropoff?.name || errandForm.pickup?.name || ''), 
         dropoffCoordinates: errandForm.isInHouse ? (errandForm.pickup?.coords || { lat: 0, lng: 0 }) : (errandForm.dropoff?.coords || errandForm.pickup?.coords || { lat: 0, lng: 0 }),
@@ -464,10 +499,12 @@ export default function App() {
       };
       await firebaseService.createErrand(data);
       triggerHaptic();
+      alert("Errand posted successfully! Runners will be notified.");
       setErrandForm({ 
         category: ErrandCategory.GENERAL, title: '', budget: 0, deadline: '', 
         pickup: null, dropoff: null, laundryBaskets: 1, pricePerBasket: 250, 
-        houseType: '', minBudget: 0, maxBudget: 0, moveInDate: '', 
+        houseType: '', rentBudgetMin: 10000, rentBudgetMax: 30000, moveInDate: '', 
+        amenities: [], targetEstates: [], runnerTasks: [],
         additionalRequirements: '', description: '', isInHouse: false,
         voiceNoteUrl: undefined, checklist: undefined,
         maxShoppingBudget: 0,
@@ -608,6 +645,34 @@ export default function App() {
     >
       <TopProgressBar isLoading={isProcessing} />
       <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-8">
+        {/* Verification Disclaimer */}
+        {user && (!user.phoneVerified || !user.emailVerified) && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-amber-50 border border-amber-200 rounded-[2rem] p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-soft"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600 shadow-inner">
+                <ShieldAlert size={24} />
+              </div>
+              <div>
+                <h4 className="text-base font-black text-amber-900">Account Verification Required</h4>
+                <p className="text-xs font-bold text-amber-700/80">Please verify your phone and email to unlock errand posting and bidding.</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                setProfileView('edit');
+                setActiveTab('menu'); // Assuming profile is in menu or has its own tab
+              }}
+              className="w-full sm:w-auto px-8 py-3 bg-amber-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-700 transition-all shadow-strong active:scale-95"
+            >
+              Verify Now
+            </button>
+          </motion.div>
+        )}
+
         {activeTab === 'dashboard' && (
           <div className="space-y-8 pb-12">
             {/* Hero Section */}
@@ -853,7 +918,7 @@ export default function App() {
                 <h3 className="text-base">Recent Activity</h3>
                 <button onClick={() => setActiveTab('my-errands')} className="text-micro text-muted-foreground">View All</button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 {isLoadingErrands ? (
                   [1,2,3].map(i => <ErrandCardSkeleton key={`skeleton-recent-${i}`} />)
                 ) : errands.slice(0, 6).length === 0 ? (
@@ -898,7 +963,7 @@ export default function App() {
                     {errands.length} Total
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 px-2">
+                <div className="grid grid-cols-1 gap-6 px-2">
                   {isLoadingErrands ? (
                     [1,2,3,4,5,6].map(i => <ErrandCardSkeleton key={`skeleton-errands-${i}`} />)
                   ) : errands.length === 0 ? (
@@ -959,6 +1024,7 @@ export default function App() {
             errors={formErrors} 
             googleMapsApiKey={googleMapsApiKey}
             googlePlacesApiKey={googlePlacesApiKey}
+            googleRoutesApiKey={googleRoutesApiKey}
           />
         )}
         {activeTab === 'find' && (
@@ -996,10 +1062,11 @@ export default function App() {
                   center={currentLocation || undefined}
                   onSelectErrand={setSelectedErrand}
                   apiKey={googleMapsApiKey}
+                  routesApiKey={googleRoutesApiKey}
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 {isLoadingAvailable ? (
                   [1,2,3,4].map(i => <ErrandCardSkeleton key={`skeleton-filtered-${i}`} />)
                 ) : filteredErrands.length === 0 ? (
@@ -1042,6 +1109,9 @@ export default function App() {
           userRoleFilter={userRoleFilter}
           setUserRoleFilter={setUserRoleFilter}
           connectionStatus={connectionStatus}
+          googleMapsApiKey={googleMapsApiKey}
+          googlePlacesApiKey={googlePlacesApiKey}
+          googleRoutesApiKey={googleRoutesApiKey}
         />}
         {activeTab === 'live-map' && (
           <div className="space-y-6 pb-12">
@@ -1064,6 +1134,7 @@ export default function App() {
                 runners={onlineRunners}
                 center={currentLocation || undefined}
                 apiKey={googleMapsApiKey}
+                routesApiKey={googleRoutesApiKey}
               />
             </div>
 
@@ -1410,6 +1481,7 @@ export default function App() {
           setShowEmailVerificationModal={setShowEmailVerificationModal}
           setAuthModalMode={setAuthModalMode}
           googleMapsApiKey={googleMapsApiKey}
+          googleRoutesApiKey={googleRoutesApiKey}
           initialTab={initialDetailTab}
           currentLocation={currentLocation}
         />
@@ -1759,7 +1831,10 @@ const AdminPanelLocal: React.FC<{
   userRoleFilter: UserRole | 'all';
   setUserRoleFilter: (r: UserRole | 'all') => void;
   connectionStatus: 'testing' | 'success' | 'failed';
-}> = ({ user, settings, stats, setStats, userSearchQuery, setUserSearchQuery, userRoleFilter, setUserRoleFilter, connectionStatus }) => {
+  googleMapsApiKey: string;
+  googlePlacesApiKey: string;
+  googleRoutesApiKey: string;
+}> = ({ user, settings, stats, setStats, userSearchQuery, setUserSearchQuery, userRoleFilter, setUserRoleFilter, connectionStatus, googleMapsApiKey, googlePlacesApiKey, googleRoutesApiKey }) => {
   const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
   const [logoUrl, setLogoUrl] = useState(settings.logoUrl || '');
   const [iconUrl, setIconUrl] = useState(settings.iconUrl || '');
@@ -1779,6 +1854,8 @@ const AdminPanelLocal: React.FC<{
   const [isAddingListing, setIsAddingListing] = useState(false);
   const [selectedSupportUser, setSelectedSupportUser] = useState<string | null>(null);
   const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [testEmailRecipient, setTestEmailRecipient] = useState('');
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [loading, setLoading] = useState(false);
   const logoFileRef = useRef<HTMLInputElement>(null);
@@ -2463,6 +2540,9 @@ const AdminPanelLocal: React.FC<{
               {[
                 { label: 'Database', value: 'Google Firestore', status: connectionStatus === 'success' ? 'CONNECTED' : connectionStatus === 'testing' ? 'TESTING...' : 'DISCONNECTED' },
                 { label: 'Authentication', value: 'Firebase Auth', status: user ? 'AUTHENTICATED' : 'GUEST' },
+                { label: 'Maps API', value: 'Google Maps', status: googleMapsApiKey ? 'ACTIVE' : 'MISSING' },
+                { label: 'Places API', value: 'Google Places', status: googlePlacesApiKey ? 'ACTIVE' : 'MISSING' },
+                { label: 'Routes API', value: 'Google Routes', status: googleRoutesApiKey ? 'ACTIVE' : 'MISSING' },
                 { label: 'Media Storage', value: 'Cloudinary CDN', status: 'ACTIVE' },
                 { label: 'AI Services', value: 'Google Gemini', status: 'ACTIVE' },
                 { label: 'Messaging', value: 'Textsasa SMS', status: 'CONFIGURED' },
@@ -2551,6 +2631,57 @@ const AdminPanelLocal: React.FC<{
                   className="px-5 py-2 bg-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg"
                 >
                   <Download size={12} /> Download .env
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-8 p-6 bg-indigo-50 rounded-[2rem] border border-indigo-100">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-indigo-600 text-white rounded-lg"><Mail size={16} /></div>
+                <div>
+                  <h4 className="text-sm font-black text-indigo-900 uppercase tracking-widest">SMTP Email Test</h4>
+                  <p className="text-[10px] text-indigo-400 font-bold">Verify your email configuration</p>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <input 
+                  type="email" 
+                  placeholder="Recipient Email Address" 
+                  value={testEmailRecipient}
+                  onChange={(e) => setTestEmailRecipient(e.target.value)}
+                  className="flex-1 p-4 bg-white rounded-2xl border-none outline-none font-bold text-sm focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                />
+                <button 
+                  disabled={isSendingTestEmail || !testEmailRecipient.trim()}
+                  onClick={async () => {
+                    setIsSendingTestEmail(true);
+                    try {
+                      const token = await auth.currentUser?.getIdToken();
+                      const response = await fetch('/api/admin/test-email', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ to: testEmailRecipient })
+                      });
+                      const data = await response.json();
+                      if (response.ok) {
+                        alert("Test email sent successfully! Please check your inbox.");
+                        setTestEmailRecipient('');
+                      } else {
+                        throw new Error(data.error || "Failed to send test email");
+                      }
+                    } catch (e: any) {
+                      alert("Test email failed: " + e.message);
+                    } finally {
+                      setIsSendingTestEmail(false);
+                    }
+                  }}
+                  className="px-6 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-indigo-100 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSendingTestEmail ? <LoadingSpinner color="white" /> : <><Send size={14} /> Send Test</>}
                 </button>
               </div>
             </div>
@@ -2736,7 +2867,28 @@ const AdminPanelLocal: React.FC<{
             <div className="pt-6 border-t border-slate-100">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">System Configuration</h3>
               <button 
-                onClick={() => window.open('/api/admin/export-env', '_blank')}
+                onClick={async () => {
+                  try {
+                    const token = await auth.currentUser?.getIdToken();
+                    const response = await fetch('/api/admin/download-env', {
+                      headers: {
+                        'Authorization': `Bearer ${token}`
+                      }
+                    });
+                    if (!response.ok) throw new Error('Failed to download');
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = '.env';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                  } catch (e: any) {
+                    alert("Download failed: " + e.message);
+                  }
+                }}
                 className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-black transition-all shadow-xl shadow-slate-200"
               >
                 <Download size={14} /> Export .env File
@@ -3121,11 +3273,32 @@ const ChatSection: React.FC<{ errandId: string, user: User | null, onSendMessage
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const QUICK_REPLIES = [
+    "On my way",
     "Leave it at the gate",
+    "I'm here",
+    "Almost there",
+    "Where are you?",
+    "Got it",
+    "Please call me",
     "I'm coming down",
     "Call me when you arrive",
     "Thank you!",
-    "On my way"
+    "I'm at the pickup point",
+    "I'm at the drop-off point",
+    "Everything is ready",
+    "I've picked it up",
+    "I've dropped it off",
+    "Please confirm receipt",
+    "I'm running a bit late",
+    "I'm at the gate",
+    "Please open the door",
+    "I'm at the reception",
+    "I'm at the parking lot",
+    "I'm at the shop",
+    "They don't have this item",
+    "Should I get a substitute?",
+    "I'm checking out now",
+    "I'm on my way to you"
   ];
 
   useEffect(() => {
@@ -3871,7 +4044,7 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
   onRunnerComplete, onCompleteErrand, loading,
   setShowPriceRequestModal, setShowAddPropertyModal, setShowComparisonModal, setShowAuthModal,
   setShowPhoneVerificationModal, setShowEmailVerificationModal, setAuthModalMode,
-  googleMapsApiKey, initialTab = 'details',
+  googleMapsApiKey, googleRoutesApiKey, initialTab = 'details',
   currentLocation
 }) => {
   const [comments, setComments] = useState(selectedErrand?.runnerComments || '');
@@ -3889,8 +4062,12 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
   const [showProofs, setShowProofs] = useState(false);
   const [proofLabel, setProofLabel] = useState('');
   const [isUploadingProof, setIsUploadingProof] = useState(false);
-  const [activeDetailTab, setActiveDetailTab] = useState<'details' | 'map' | 'chat' | 'progress'>(initialTab);
+  const [activeDetailTab, setActiveDetailTab] = useState<'details' | 'map' | 'chat' | 'progress' | 'finish'>(initialTab);
+  const [runnerRating, setRunnerRating] = useState(0);
+  const [runnerReview, setRunnerReview] = useState('');
   const [showBidModal, setShowBidModal] = useState(false);
+  const [showDistanceWarning, setShowDistanceWarning] = useState(false);
+  const [currentDistance, setCurrentDistance] = useState<number | null>(null);
   const [travelMode, setTravelMode] = useState<'DRIVE' | 'WALK'>('DRIVE');
   const [routeSummary, setRouteSummary] = useState<{ distance: string; duration: string } | null>(null);
 
@@ -4115,14 +4292,14 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
   const REASSIGN_REASONS = ["Wait time too long", "Budget bid so high", "Communication issues", "Runner changed their mind", "Other"];
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-md flex flex-col items-center md:items-end justify-end md:justify-center overflow-hidden">
+    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-md flex flex-col items-center justify-end md:justify-center p-0 md:p-6 overflow-hidden">
       {showCamera && <CameraCapture onCapture={handleCameraCapture} onClose={handleCloseCamera} />}
       {fullScreenImage && <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6" onClick={() => setFullScreenImage(null)}><img src={fullScreenImage} className="max-w-full max-h-full object-contain rounded-xl" alt="Proof" /></div>}
       <motion.div 
-        initial={{ opacity: 0, y: 100, x: 0 }}
-        animate={{ opacity: 1, y: 0, x: 0 }}
-        exit={{ opacity: 0, y: 100, x: 0 }}
-        className="w-full max-w-2xl md:max-w-xl h-[90vh] md:h-full bg-white rounded-t-[3rem] md:rounded-t-none md:rounded-l-[3rem] shadow-2xl overflow-y-auto relative"
+        initial={{ opacity: 0, y: 100 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 100 }}
+        className="w-full max-w-2xl md:max-w-7xl h-[90vh] md:h-[90vh] bg-white rounded-t-[3rem] md:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col relative"
       >
         <header className="px-6 py-5 border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-10">
           <div className="flex items-center gap-3">
@@ -4146,77 +4323,36 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
           <div className="text-right shrink-0"><p className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Budget</p><p className="text-base font-black text-emerald-600">Ksh {selectedErrand.budget}</p></div>
         </header>
         
-        <div className="px-6 pt-4 flex items-center gap-2 overflow-x-auto no-scrollbar border-b border-slate-50 pb-4">
+        <div className="px-6 pt-4 pb-4 border-b border-slate-50">
+          <div className="bg-slate-100/50 p-1 rounded-2xl flex items-center gap-1 overflow-x-auto no-scrollbar relative">
             {[
               { id: 'details', icon: FileText, label: 'Details' },
               { id: 'map', icon: MapIcon, label: 'Map' },
               { id: 'chat', icon: MessageCircle, label: 'Chat' },
-              { id: 'progress', icon: Activity, label: 'Progress' }
+              { id: 'progress', icon: Activity, label: 'Progress' },
+              { id: 'finish', icon: CheckCircle2, label: 'Finish' }
             ].map(tab => (
               <button 
                 key={tab.id}
                 onClick={() => setActiveDetailTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 h-9 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap justify-center ${activeDetailTab === tab.id ? 'bg-black text-white shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                className={`relative flex-1 flex items-center gap-2 px-4 h-10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap justify-center z-10 ${activeDetailTab === tab.id ? 'text-black' : 'text-slate-400 hover:text-slate-600'}`}
               >
-                <tab.icon size={14} /> {tab.label}
+                {activeDetailTab === tab.id && (
+                  <motion.div 
+                    layoutId="activeTab"
+                    className="absolute inset-0 bg-white rounded-xl shadow-sm border border-slate-200/50"
+                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                  />
+                )}
+                <tab.icon size={14} className="relative z-20" /> 
+                <span className="relative z-20">{tab.label}</span>
               </button>
             ))}
+          </div>
         </div>
-        <div className="p-6 space-y-6 pb-24">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 pb-24">
           {activeDetailTab === 'details' && (
             <>
-              {selectedErrand.status === ErrandStatus.COMPLETED && (
-                <div className="space-y-4">
-                  {isRequester && !selectedErrand.runnerRating && (
-                    <RatingInput 
-                      targetName={selectedErrand.runnerName || 'the runner'} 
-                      onRate={async (rating, review) => {
-                        try {
-                          await firebaseService.rateRunner(selectedErrand.id, selectedErrand.runnerId!, rating, review);
-                          alert("Thank you for your rating!");
-                          refresh();
-                        } catch (e) { alert("Failed to submit rating."); }
-                      }}
-                    />
-                  )}
-                  {isRunner && !selectedErrand.requesterRating && (
-                    <RatingInput 
-                      targetName={selectedErrand.requesterName || 'the requester'} 
-                      onRate={async (rating, review) => {
-                        try {
-                          await firebaseService.rateRequester(selectedErrand.id, selectedErrand.requesterId, rating, review);
-                          alert("Thank you for your rating!");
-                          refresh();
-                        } catch (e) { alert("Failed to submit rating."); }
-                      }}
-                    />
-                  )}
-
-                  {selectedErrand.runnerRating && (
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Runner Rating</span>
-                        <div className="flex items-center gap-0.5">
-                          {[1,2,3,4,5].map(s => <Star key={s} size={10} className={`${s <= selectedErrand.runnerRating! ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />)}
-                        </div>
-                      </div>
-                      {selectedErrand.runnerReview && <p className="text-xs text-slate-600 font-medium italic">"{selectedErrand.runnerReview}"</p>}
-                    </div>
-                  )}
-                  {selectedErrand.requesterRating && (
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Requester Rating</span>
-                        <div className="flex items-center gap-0.5">
-                          {[1,2,3,4,5].map(s => <Star key={s} size={10} className={`${s <= selectedErrand.requesterRating! ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />)}
-                        </div>
-                      </div>
-                      {selectedErrand.requesterReview && <p className="text-xs text-slate-600 font-medium italic">"{selectedErrand.requesterReview}"</p>}
-                    </div>
-                  )}
-                </div>
-              )}
-
               {(selectedErrand.status === ErrandStatus.ACCEPTED || selectedErrand.status === ErrandStatus.VERIFYING) && (
             <div className="flex gap-2">
               <button onClick={handleSOS} className="flex-1 py-3 bg-red-50 text-red-600 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 border border-red-100 hover:bg-red-100 transition-all">
@@ -4244,8 +4380,8 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                   <p className="text-lg font-black text-slate-900">Ksh {selectedErrand.maxShoppingBudget || 0}</p>
                 </div>
                 <div className="p-4 bg-white rounded-2xl border border-amber-100">
-                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Actual Spent</p>
-                  <p className="text-lg font-black text-emerald-600">Ksh {selectedErrand.actualShoppingTotal || 0}</p>
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Payment Method</p>
+                  <p className="text-sm font-black text-amber-600 uppercase tracking-widest">{selectedErrand.paymentMethod || 'Cash on Delivery'}</p>
                 </div>
               </div>
 
@@ -4291,7 +4427,10 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
           {selectedErrand.category === ErrandCategory.HOUSE_HUNTING && (
             <section className="bg-indigo-50 p-6 rounded-[2rem] border border-indigo-100 space-y-4 animate-in fade-in slide-in-from-bottom-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Saka Keja Report</h4>
+                <div className="flex items-center gap-2">
+                  <Home size={14} className="text-indigo-600" />
+                  <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Saka Keja Report</h4>
+                </div>
                 {selectedErrand.propertyListings && selectedErrand.propertyListings.length >= 2 && isRequester && (
                   <button 
                     onClick={() => setShowComparisonModal(true)}
@@ -4346,6 +4485,61 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                   <Plus size={14} /> Add Property Listing
                 </button>
               )}
+            </section>
+          )}
+
+          {/* Mama Fua Cost Breakdown */}
+          {selectedErrand.category === ErrandCategory.MAMA_FUA && selectedErrand.mamaFuaBreakdown && (
+            <section className="bg-blue-50 p-6 rounded-[2rem] border border-blue-100 space-y-4 animate-in fade-in slide-in-from-bottom-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Mama Fua Cost Breakdown</h4>
+                <div className="px-2 py-0.5 bg-blue-500 text-white rounded-full text-[8px] font-black uppercase">Admin View</div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="p-4 bg-white rounded-2xl border border-blue-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Load Size ({selectedErrand.mamaFuaBreakdown.loadSizeLabel})</p>
+                  <p className="text-lg font-black text-slate-900">Ksh {selectedErrand.mamaFuaBreakdown.loadSizeCost}</p>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-blue-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Material ({selectedErrand.mamaFuaBreakdown.materialLabel})</p>
+                  <p className="text-lg font-black text-slate-900">Ksh {selectedErrand.mamaFuaBreakdown.materialCost}</p>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-blue-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Urgency ({selectedErrand.mamaFuaBreakdown.urgencyLabel})</p>
+                  <p className="text-lg font-black text-slate-900">x {selectedErrand.mamaFuaBreakdown.urgencyMultiplier}</p>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-blue-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Detergent Add-on</p>
+                  <p className="text-lg font-black text-slate-900">Ksh {selectedErrand.mamaFuaBreakdown.detergentCost}</p>
+                </div>
+                <div className="p-4 bg-white rounded-2xl border border-blue-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Base Fee</p>
+                  <p className="text-lg font-black text-slate-900">Ksh {selectedErrand.mamaFuaBreakdown.baseFee}</p>
+                </div>
+                <div className="p-4 bg-blue-600 rounded-2xl border border-blue-700 shadow-lg shadow-blue-100">
+                  <p className="text-[8px] font-black text-blue-100 uppercase mb-1">Total Service Fee</p>
+                  <p className="text-xl font-black text-white">Ksh {selectedErrand.mamaFuaBreakdown.total}</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-white/50 rounded-2xl border border-blue-100">
+                <h5 className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-2">Service Constraints</h5>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-[7px] font-bold text-slate-400 uppercase">Detergent</p>
+                    <p className="text-[10px] font-black text-slate-700">{selectedErrand.detergentProvided ? 'Provided' : 'Not Provided'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[7px] font-bold text-slate-400 uppercase">Water</p>
+                    <p className="text-[10px] font-black text-slate-700">{selectedErrand.waterAvailability}</p>
+                  </div>
+                  <div>
+                    <p className="text-[7px] font-bold text-slate-400 uppercase">Hanging</p>
+                    <p className="text-[10px] font-black text-slate-700">{selectedErrand.hangingPreference}</p>
+                  </div>
+                </div>
+              </div>
             </section>
           )}
 
@@ -4711,6 +4905,7 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                   center={currentLocation || selectedErrand.pickupCoordinates || undefined}
                   zoom={15}
                   apiKey={googleMapsApiKey}
+                  routesApiKey={googleRoutesApiKey}
                   showRoute={true}
                   travelMode={travelMode}
                   onRouteCalculated={setRouteSummary}
@@ -4812,8 +5007,316 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
             </>
           )}
 
+          {activeDetailTab === 'finish' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+              {/* Status-specific messages */}
+              {selectedErrand.status === ErrandStatus.PENDING && (
+                <div className="bg-slate-50 p-10 rounded-[2.5rem] border border-slate-100 text-center space-y-4">
+                  <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm border border-slate-100">
+                    <Clock size={32} className="text-slate-300" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">Awaiting Assignment</h4>
+                    <p className="text-[10px] font-medium text-slate-400 leading-relaxed px-6 mt-2 italic">The task hasn't been assigned to a runner yet. Once assigned, completion steps will appear here.</p>
+                  </div>
+                </div>
+              )}
+
+              {selectedErrand.status === ErrandStatus.BIDDING && (
+                <div className="bg-amber-50 p-10 rounded-[2.5rem] border border-amber-100 text-center space-y-4">
+                  <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm border border-amber-100">
+                    <Users size={32} className="text-amber-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-amber-600 uppercase tracking-widest">Bidding in Progress</h4>
+                    <p className="text-[10px] font-medium text-amber-400 leading-relaxed px-6 mt-2 italic">Runners are currently bidding on this task. Once a runner is selected, the completion board will be activated.</p>
+                  </div>
+                </div>
+              )}
+
+              {selectedErrand.status === ErrandStatus.ACCEPTED && isRequester && (
+                <div className="bg-blue-50 p-10 rounded-[2.5rem] border border-blue-100 text-center space-y-4">
+                  <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm border border-blue-100">
+                    <Activity size={32} className="text-blue-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-blue-600 uppercase tracking-widest">Runner at Work</h4>
+                    <p className="text-[10px] font-medium text-blue-400 leading-relaxed px-6 mt-2 italic">The runner is currently working on your task. They will submit proof of completion here once finished.</p>
+                  </div>
+                </div>
+              )}
+
+              {selectedErrand.status === ErrandStatus.CANCELLED && (
+                <div className="bg-red-50 p-10 rounded-[2.5rem] border border-red-100 text-center space-y-4">
+                  <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto shadow-sm border border-red-100">
+                    <X size={32} className="text-red-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-red-600 uppercase tracking-widest">Task Cancelled</h4>
+                    <p className="text-[10px] font-medium text-red-400 leading-relaxed px-6 mt-2 italic">This task has been cancelled and cannot be completed.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Execution Board (Runner) - Hardware Inspired */}
+              {(selectedErrand.status === ErrandStatus.ACCEPTED || selectedErrand.status === ErrandStatus.VERIFYING) && isRunner && (
+                <div className="bg-[#151619] rounded-[2.5rem] p-8 text-white space-y-6 shadow-2xl border border-white/5 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
+                  
+                  <div className="flex items-center justify-between relative z-10">
+                    <div>
+                      <h4 className="text-lg font-black uppercase tracking-widest">Execution Board</h4>
+                      <p className="text-[8px] font-black text-indigo-400 uppercase tracking-[0.2em] mt-1">Runner Control Panel</p>
+                    </div>
+                    <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center border border-white/10">
+                      <Settings size={18} className="text-slate-400" />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2 relative z-10">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1">Work Log / Comments</label>
+                    <textarea 
+                      value={comments} 
+                      onChange={e => setComments(e.target.value)} 
+                      placeholder="Describe the work done..." 
+                      className="w-full p-5 bg-white/5 rounded-2xl border border-white/10 text-white placeholder:text-slate-600 font-bold outline-none h-32 resize-none text-xs focus:ring-2 focus:ring-indigo-500/20 transition-all" 
+                    />
+                  </div>
+                  
+                  <div className="space-y-4 relative z-10">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1">Visual Proof</label>
+                      <span className="text-[8px] font-black text-indigo-400 uppercase">Required for verification</span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => setShowCamera(true)} 
+                        className="py-4 bg-white/5 hover:bg-white/10 rounded-2xl flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest border border-white/10 transition-all active:scale-95"
+                      >
+                        <Camera size={18} className="text-indigo-400" /> 
+                        Camera
+                      </button>
+                      <button 
+                        onClick={() => fileRef.current?.click()} 
+                        className="py-4 bg-white/5 hover:bg-white/10 rounded-2xl flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest border border-white/10 transition-all active:scale-95"
+                      >
+                        <ImageIcon size={18} className="text-indigo-400" /> 
+                        Gallery
+                      </button>
+                      <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} />
+                    </div>
+
+                    {(photo || isUploading) && (
+                      <div className="relative rounded-[2rem] overflow-hidden border-2 border-white/10 h-56 bg-white/5 flex items-center justify-center group">
+                        {isUploading ? (
+                          <LoadingSpinner color="white" />
+                        ) : (
+                          <>
+                            <img src={photo!} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="Proof" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <button onClick={() => setFullScreenImage(photo)} className="p-3 bg-white text-black rounded-full shadow-xl">
+                                <Maximize2 size={20} />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {!selectedErrand.requesterRating && (
+                    <div className="pt-6 border-t border-white/5 space-y-5 relative z-10">
+                      <div className="text-center space-y-2">
+                        <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Rate {selectedErrand.requesterName || 'the requester'}</h4>
+                        <div className="flex justify-center gap-3 py-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button 
+                              key={star} 
+                              onClick={() => setRunnerRating(star)} 
+                              className="transition-all hover:scale-125 active:scale-90"
+                            >
+                              <Star 
+                                size={24} 
+                                className={`${star <= runnerRating ? 'fill-amber-400 text-amber-400' : 'text-slate-700'}`} 
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <textarea 
+                        value={runnerReview} 
+                        onChange={e => setRunnerReview(e.target.value)} 
+                        placeholder="Any feedback for the requester? (optional)" 
+                        className="w-full p-5 bg-white/5 rounded-2xl border border-white/10 text-white placeholder:text-slate-600 font-bold outline-none h-24 resize-none text-xs focus:ring-2 focus:ring-indigo-500/20 transition-all" 
+                      />
+                    </div>
+                  )}
+
+                  <button 
+                    disabled={loading || isUploading} 
+                    onClick={async () => {
+                      if (selectedErrand.dropoffCoordinates && currentLocation) {
+                        const dist = calculateDistance(currentLocation, selectedErrand.dropoffCoordinates);
+                        if (dist > 0.5) { // If more than 500 meters away
+                          setCurrentDistance(dist);
+                          setShowDistanceWarning(true);
+                          return;
+                        }
+                      }
+
+                      if (runnerRating > 0) {
+                        try {
+                          await firebaseService.rateRequester(selectedErrand.id, selectedErrand.requesterId, runnerRating, runnerReview);
+                        } catch (e) { console.error("Rating failed", e); }
+                      }
+                      onRunnerComplete(selectedErrand.id, comments, photo || undefined);
+                    }} 
+                    className="w-full py-6 bg-indigo-600 hover:bg-indigo-500 text-white rounded-[1.5rem] font-black uppercase text-xs tracking-widest shadow-2xl shadow-indigo-500/20 active:scale-[0.98] transition-all disabled:opacity-50 relative z-10"
+                  >
+                    {loading ? <LoadingSpinner color="white" /> : 'Complete & Submit Task'}
+                  </button>
+                </div>
+              )}
+
+              {/* Verification (Requester) - Clean Utility */}
+              {selectedErrand.status === ErrandStatus.VERIFYING && isRequester && (
+                <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 space-y-6 shadow-xl animate-in zoom-in-95">
+                  <div className="text-center space-y-1">
+                    <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">Task Verification</h4>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Review the runner's work</p>
+                  </div>
+
+                  {selectedErrand.completionPhoto && (
+                    <div className="relative aspect-video rounded-[2rem] overflow-hidden border-4 border-slate-50 shadow-inner group">
+                      <img 
+                        src={selectedErrand.completionPhoto} 
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                        alt="Proof" 
+                      />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <button onClick={() => setFullScreenImage(selectedErrand.completionPhoto)} className="p-3 bg-white text-black rounded-full shadow-xl">
+                          <Maximize2 size={20} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 relative">
+                    <div className="absolute -top-3 left-6 px-3 py-1 bg-white border border-slate-100 rounded-full text-[8px] font-black uppercase text-slate-400">Runner's Note</div>
+                    <p className="text-sm text-slate-600 font-medium italic leading-relaxed">
+                      "{selectedErrand.runnerComments || 'No comments provided.'}"
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 pt-2">
+                    <button 
+                      disabled={loading} 
+                      onClick={() => onCompleteErrand(selectedErrand.id)} 
+                      className="w-full py-6 bg-emerald-600 hover:bg-emerald-500 text-white rounded-[1.5rem] font-black uppercase text-xs tracking-widest shadow-xl shadow-emerald-100 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                    >
+                      {loading ? <LoadingSpinner color="white" /> : (
+                        <>
+                          <CheckCircle2 size={20} />
+                          Approve & Release Funds
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[9px] text-slate-400 text-center uppercase font-bold px-8 leading-relaxed">
+                      By approving, you confirm the task is complete and authorize the release of Ksh {selectedErrand.acceptedPrice || selectedErrand.budget} to the runner.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Rating Section - Editorial Style */}
+              {selectedErrand.status === ErrandStatus.COMPLETED && (
+                <div className="space-y-8 py-4">
+                  <div className="text-center space-y-2">
+                    <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <CheckCircle2 size={32} />
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Task Completed!</h3>
+                    <p className="text-xs font-medium text-slate-400">Funds have been successfully released.</p>
+                  </div>
+
+                  <div className="space-y-6">
+                    {isRequester && !selectedErrand.runnerRating && (
+                      <RatingInput 
+                        targetName={selectedErrand.runnerName || 'the runner'} 
+                        onRate={async (rating, review) => {
+                          try {
+                            await firebaseService.rateRunner(selectedErrand.id, selectedErrand.runnerId!, rating, review);
+                            alert("Thank you for your rating!");
+                            refresh();
+                          } catch (e) { alert("Failed to submit rating."); }
+                        }}
+                      />
+                    )}
+                    {isRunner && !selectedErrand.requesterRating && (
+                      <RatingInput 
+                        targetName={selectedErrand.requesterName || 'the requester'} 
+                        onRate={async (rating, review) => {
+                          try {
+                            await firebaseService.rateRequester(selectedErrand.id, selectedErrand.requesterId, rating, review);
+                            alert("Thank you for your rating!");
+                            refresh();
+                          } catch (e) { alert("Failed to submit rating."); }
+                        }}
+                      />
+                    )}
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {selectedErrand.runnerRating && (
+                        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-amber-50 rounded-full -mr-12 -mt-12 opacity-50"></div>
+                          <div className="flex items-center justify-between relative z-10">
+                            <div>
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Runner Feedback</span>
+                              <h5 className="text-sm font-black text-slate-900 mt-1">{selectedErrand.runnerName}</h5>
+                            </div>
+                            <div className="flex items-center gap-1 bg-amber-50 px-3 py-1.5 rounded-full">
+                              <Star size={12} className="fill-amber-400 text-amber-400" />
+                              <span className="text-xs font-black text-amber-600">{selectedErrand.runnerRating}</span>
+                            </div>
+                          </div>
+                          {selectedErrand.runnerReview && (
+                            <p className="text-sm text-slate-600 font-medium italic leading-relaxed relative z-10">
+                              "{selectedErrand.runnerReview}"
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      
+                      {selectedErrand.requesterRating && (
+                        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50 rounded-full -mr-12 -mt-12 opacity-50"></div>
+                          <div className="flex items-center justify-between relative z-10">
+                            <div>
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Requester Feedback</span>
+                              <h5 className="text-sm font-black text-slate-900 mt-1">{selectedErrand.requesterName}</h5>
+                            </div>
+                            <div className="flex items-center gap-1 bg-indigo-50 px-3 py-1.5 rounded-full">
+                              <Star size={12} className="fill-indigo-400 text-indigo-400" />
+                              <span className="text-xs font-black text-indigo-600">{selectedErrand.requesterRating}</span>
+                            </div>
+                          </div>
+                          {selectedErrand.requesterReview && (
+                            <p className="text-sm text-slate-600 font-medium italic leading-relaxed relative z-10">
+                              "{selectedErrand.requesterReview}"
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeDetailTab === 'progress' && (
-            <>
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
               {/* Real-Time Progress (MicroSteps) */}
               {selectedErrand.microSteps && selectedErrand.microSteps.length > 0 && (
                 <section className="bg-slate-900 p-6 rounded-[2rem] shadow-2xl space-y-5">
@@ -4850,25 +5353,6 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                     ))}
                   </div>
                 </section>
-              )}
-
-              {/* Execution Board (Runner) */}
-              {(selectedErrand.status === ErrandStatus.ACCEPTED || selectedErrand.status === ErrandStatus.VERIFYING) && isRunner && (
-                <div className="bg-black rounded-[2rem] p-6 text-white space-y-5 shadow-2xl">
-                  <div className="flex items-center justify-between"><h4 className="text-lg font-black uppercase tracking-widest">Execution Board</h4></div>
-                  <div className="space-y-1.5"><label className="text-[9px] font-black uppercase tracking-widest text-slate-300 ml-1">Comments</label><textarea value={comments} onChange={e => setComments(e.target.value)} placeholder="Work progress update..." className="w-full p-4 bg-white/10 rounded-2xl border-none text-white placeholder:text-slate-500 font-bold outline-none h-24 resize-none text-xs" /></div>
-                  <div className="space-y-3">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-300">Proof Image</label>
-                    <div className="grid grid-cols-2 gap-3"><button onClick={() => setShowCamera(true)} className="py-3 bg-white/10 rounded-xl flex items-center justify-center gap-2 font-black text-[9px] uppercase"><Camera size={16} /> Camera</button><button onClick={() => fileRef.current?.click()} className="py-3 bg-white/10 rounded-xl flex items-center justify-center gap-2 font-black text-[9px] uppercase"><ImageIcon size={16} /> Gallery</button><input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0])} /></div>
-                    {(photo || isUploading) && (<div className="relative rounded-2xl overflow-hidden border-2 border-white/20 h-40 bg-black/10 flex items-center justify-center">{isUploading ? <LoadingSpinner color="white" /> : <img src={photo!} className="w-full h-full object-cover" alt="Proof" onClick={() => setFullScreenImage(photo)} />}</div>)}
-                  </div>
-                  <button disabled={loading || isUploading} onClick={() => onRunnerComplete(selectedErrand.id, comments, photo || undefined)} className="w-full py-5 bg-white text-black rounded-[1.5rem] font-black uppercase text-xs tracking-widest disabled:opacity-50">{loading ? <LoadingSpinner color="black" /> : 'Complete & Submit'}</button>
-                </div>
-              )}
-
-              {/* Verification (Requester) */}
-              {selectedErrand.status === ErrandStatus.VERIFYING && isRequester && (
-                <div className="bg-emerald-600 rounded-[2rem] p-6 text-white space-y-5"><h4 className="text-lg font-black uppercase tracking-widest text-center">Verification</h4>{selectedErrand.completionPhoto && (<img src={selectedErrand.completionPhoto} className="w-full h-48 object-cover rounded-2xl border-4 border-white/20 shadow-xl" alt="Proof" onClick={() => setFullScreenImage(selectedErrand.completionPhoto)} />)}<div className="bg-white/10 p-4 rounded-xl text-xs font-semibold italic border border-white/5">"{selectedErrand.runnerComments || 'No comments.'}"</div><button disabled={loading} onClick={() => onCompleteErrand(selectedErrand.id)} className="w-full py-5 bg-white text-emerald-600 rounded-[1.5rem] font-black uppercase text-xs tracking-widest shadow-xl">Approve & Release Funds</button></div>
               )}
 
               {/* Report View (Proofs) */}
@@ -4965,7 +5449,7 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
 
               {/* Task Completed */}
               {selectedErrand.status === ErrandStatus.COMPLETED && (<div className="bg-slate-50 rounded-[1.5rem] p-6 border border-slate-200 text-center space-y-2"><div className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center mx-auto mb-2"><CheckCircle size={24} /></div><h4 className="text-lg font-black text-slate-900">Task Completed</h4><p className="text-[10px] font-black text-slate-400 uppercase">Closed on {new Date(selectedErrand.completedAt!).toLocaleDateString()}</p></div>)}
-            </>
+            </div>
           )}
 
           {showBidModal && selectedErrand && (
@@ -4976,6 +5460,49 @@ const ErrandDetailScreenLocal: React.FC<any> = ({
                   onSubmit={handleBidSubmit}
                 />
               )}
+
+          {showDistanceWarning && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+              <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 space-y-6 shadow-2xl animate-in zoom-in-95 duration-300">
+                <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto border border-amber-100">
+                  <AlertTriangle size={40} className="text-amber-500" />
+                </div>
+                
+                <div className="text-center space-y-2">
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Distance Warning</h3>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed">
+                    You are currently <span className="font-black text-amber-600">{currentDistance?.toFixed(1)}km</span> away from the drop-off location.
+                  </p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">
+                    Are you sure you want to complete this task?
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <button 
+                    onClick={async () => {
+                      setShowDistanceWarning(false);
+                      if (runnerRating > 0) {
+                        try {
+                          await firebaseService.rateRequester(selectedErrand.id, selectedErrand.requesterId, runnerRating, runnerReview);
+                        } catch (e) { console.error("Rating failed", e); }
+                      }
+                      onRunnerComplete(selectedErrand.id, comments, photo || undefined);
+                    }}
+                    className="w-full py-5 bg-black text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all"
+                  >
+                    Close Anyway
+                  </button>
+                  <button 
+                    onClick={() => setShowDistanceWarning(false)}
+                    className="w-full py-5 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase text-xs tracking-widest active:scale-95 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
     </div>

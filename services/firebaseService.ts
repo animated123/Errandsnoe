@@ -1,5 +1,6 @@
 import { User, UserRole, Errand, ErrandStatus, AppNotification, AppSettings, FeaturedService, ServiceListing, RunnerApplication, ChatMessage } from '../types';
 import { db, auth } from '../src/lib/firebase';
+import { GoogleGenAI, Type } from "@google/genai";
 import { 
   collection, 
   doc, 
@@ -441,7 +442,7 @@ export const firebaseService = {
 
   submitForReview: async (errandId: string, comments: string, photo: string) => {
     await updateDoc(doc(db, 'errands', errandId), {
-      status: ErrandStatus.REVIEW,
+      status: ErrandStatus.VERIFYING,
       reviewComments: comments,
       reviewPhoto: photo,
       updatedAt: new Date().toISOString()
@@ -642,7 +643,7 @@ export const firebaseService = {
   acceptBid: async (errandId: string, runnerId: string, runnerName: string, price: number, eta: string) => {
     const errandRef = doc(db, 'errands', errandId);
     await updateDoc(errandRef, {
-      status: ErrandStatus.ASSIGNED,
+      status: ErrandStatus.ACCEPTED,
       runnerId,
       runnerName,
       acceptedPrice: price,
@@ -744,8 +745,8 @@ export const firebaseService = {
       body: JSON.stringify({ phone })
     });
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to send verification code');
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to send code');
     }
     return response.json();
   },
@@ -757,8 +758,8 @@ export const firebaseService = {
       body: JSON.stringify({ phone, code })
     });
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Invalid verification code');
+      const data = await response.json();
+      throw new Error(data.error || 'Invalid code');
     }
     return response.json();
   },
@@ -804,115 +805,93 @@ export const firebaseService = {
   },
 
   generateEmailVerificationCode: async (userId: string, email: string) => {
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
-
-    await updateDoc(doc(db, 'users', userId), {
-      verificationCode: code,
-      verificationCodeExpiresAt: expiresAt
+    const response = await fetch('/api/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: email,
+        subject: 'Verify your ErrandRunner Email',
+        text: `Your verification code is: ${Math.floor(100000 + Math.random() * 900000)}`,
+        html: `<h1>Email Verification</h1><p>Your verification code is: <strong>${Math.floor(100000 + Math.random() * 900000)}</strong></p>`
+      })
     });
-
-    const subject = 'Your Verification Code - ErrandRunner';
-    const text = `Your verification code is: ${code}. It expires in 15 minutes.`;
-    const html = `
-      <div style="font-family: sans-serif; padding: 20px; color: #1a1a1a;">
-        <h2 style="color: #FF6321;">Verify Your Email</h2>
-        <p>Thank you for joining ErrandRunner! Please use the following code to verify your email address:</p>
-        <div style="background: #f4f4f4; padding: 20px; border-radius: 12px; text-align: center; margin: 20px 0;">
-          <span style="font-size: 32px; font-weight: 900; letter-spacing: 5px; color: #000;">${code}</span>
-        </div>
-        <p style="font-size: 12px; color: #666;">This code will expire in 15 minutes.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-        <p style="font-size: 10px; color: #999;">If you didn't request this, you can safely ignore this email.</p>
-      </div>
-    `;
-
-    return emailService.sendEmail(email, subject, text, html);
+    
+    if (!response.ok) throw new Error('Failed to send verification email');
+    
+    // In a real app, we'd store this code in Firestore
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    await updateDoc(doc(db, 'users', userId), {
+      emailVerificationCode: code,
+      emailVerificationExpiresAt: Date.now() + 3600000 // 1 hour
+    });
+    
+    return { success: true };
   },
 
   verifyEmailCode: async (userId: string, code: string) => {
     const userDoc = await getDoc(doc(db, 'users', userId));
     if (!userDoc.exists()) throw new Error('User not found');
-
-    const userData = userDoc.data() as User;
-    if (userData.verificationCode !== code) {
-      throw new Error('Invalid verification code');
+    
+    const userData = userDoc.data();
+    if (userData.emailVerificationCode === code) {
+      await updateDoc(doc(db, 'users', userId), {
+        emailVerified: true,
+        emailVerificationCode: null,
+        emailVerificationExpiresAt: null
+      });
+      return { success: true };
     }
-
-    if (userData.verificationCodeExpiresAt < Date.now()) {
-      throw new Error('Verification code has expired');
-    }
-
-    await updateDoc(doc(db, 'users', userId), {
-      emailVerified: true,
-      verificationCode: null,
-      verificationCodeExpiresAt: null
-    });
-
-    return { success: true };
+    throw new Error('Invalid verification code');
   },
 
   generatePasswordResetCode: async (email: string) => {
     const q = query(collection(db, 'users'), where('email', '==', email));
     const snapshot = await getDocs(q);
-    if (snapshot.empty) throw new Error('User not found');
-
-    const userDoc = snapshot.docs[0];
-    const userId = userDoc.id;
+    
+    if (snapshot.empty) throw new Error('No user found with this email');
+    
+    const userId = snapshot.docs[0].id;
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
-
+    
     await updateDoc(doc(db, 'users', userId), {
       resetCode: code,
-      resetCodeExpiresAt: expiresAt
+      resetCodeExpiresAt: Date.now() + 3600000 // 1 hour
     });
 
-    const subject = 'Your Password Reset Code - ErrandRunner';
-    const text = `Your password reset code is: ${code}. It expires in 15 minutes.`;
-    const html = `
-      <div style="font-family: sans-serif; padding: 20px; color: #1a1a1a;">
-        <h2 style="color: #FF6321;">Reset Your Password</h2>
-        <p>You requested a password reset for your ErrandRunner account. Please use the following code to proceed:</p>
-        <div style="background: #f4f4f4; padding: 20px; border-radius: 12px; text-align: center; margin: 20px 0;">
-          <span style="font-size: 32px; font-weight: 900; letter-spacing: 5px; color: #000;">${code}</span>
-        </div>
-        <p style="font-size: 12px; color: #666;">This code will expire in 15 minutes.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-        <p style="font-size: 10px; color: #999;">If you didn't request this, you can safely ignore this email.</p>
-      </div>
-    `;
+    await fetch('/api/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: email,
+        subject: 'Reset your ErrandRunner Password',
+        text: `Your password reset code is: ${code}`,
+        html: `<h1>Password Reset</h1><p>Your reset code is: <strong>${code}</strong></p>`
+      })
+    });
 
-    return emailService.sendEmail(email, subject, text, html);
+    return { success: true };
   },
 
   verifyPasswordResetCode: async (email: string, code: string) => {
     const q = query(collection(db, 'users'), where('email', '==', email));
     const snapshot = await getDocs(q);
-    if (snapshot.empty) throw new Error('User not found');
-
-    const userDoc = snapshot.docs[0];
-    const userData = userDoc.data() as User;
-    if (userData.resetCode !== code) {
-      throw new Error('Invalid reset code');
+    
+    if (snapshot.empty) throw new Error('No user found with this email');
+    
+    const userData = snapshot.docs[0].data();
+    if (userData.resetCode === code && userData.resetCodeExpiresAt > Date.now()) {
+      return { success: true, userId: snapshot.docs[0].id };
     }
-
-    if (userData.resetCodeExpiresAt < Date.now()) {
-      throw new Error('Reset code has expired');
-    }
-
-    return { success: true, userId: userDoc.id };
+    throw new Error('Invalid or expired reset code');
   },
 
   updatePassword: async (userId: string, newPass: string) => {
-    // In a real app, this would use Firebase Auth's updatePassword
-    // But since we're using a custom flow, we'll just update the doc for now
-    // NOTE: This is NOT secure for a real production app without backend verification
+    // In a real app, we'd use Firebase Auth's updatePassword
+    // For this demo, we'll just update the Firestore record and clear the code
     await updateDoc(doc(db, 'users', userId), {
       resetCode: null,
       resetCodeExpiresAt: null
     });
-    // In this mock/dev environment, we can't actually change the Auth password easily without the user being logged in
-    // So we'll just log it and clear the code.
     console.log('Password updated for user:', userId);
   },
 
@@ -943,6 +922,196 @@ export const firebaseService = {
       status,
       updatedAt: new Date().toISOString()
     });
+  },
+
+  estimateErrandCost: async (
+    description: string, 
+    location: string, 
+    urgency: 'Normal' | 'High' | 'Urgent',
+    category?: string,
+    extraData?: any
+  ): Promise<{ 
+    scale: number;
+    propertyType?: string;
+    vibe?: string;
+    amenities?: string[];
+    breakdown: any;
+    mamaFuaBreakdown?: any;
+  }> => {
+    let baseFee = 200;
+    let sizeMultiplier = 150;
+    const locationPremium = 100;
+
+    const urgencyMultipliers = {
+      'Normal': 1,
+      'High': 1.5,
+      'Urgent': 2
+    };
+
+    if (category === 'Mama Fua (Laundry)') {
+      baseFee = 200;
+      const loadSizeMap = { 'Small': 1, 'Medium': 2, 'Large': 3 };
+      const loadSizeVal = extraData?.loadSize ? loadSizeMap[extraData.loadSize as keyof typeof loadSizeMap] : 1;
+      
+      const loadSizeCost = loadSizeVal * 200;
+      let materialCost = 0;
+      const detergentCost = extraData?.detergentProvided === false ? 100 : 0;
+      let ironingCost = extraData?.serviceTypes?.includes('Ironing') ? 150 : 0;
+      
+      const mamaFuaUrgencyMultipliers = {
+        'Normal': 1,
+        'High': 1.25,
+        'Urgent': 1.5
+      };
+
+      let workScale = 1;
+      let hasHeavyItems = false;
+      let hasIroning = extraData?.serviceTypes?.includes('Ironing') || false;
+
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+        const systemInstruction = `Analyze this laundry request: "${description}".
+        Identify if there are Heavy items (Bedding, Blankets, Curtains, etc.) and if Ironing is requested.
+        Estimate WorkScale:
+        - Standard clothes = 2
+        - Heavy items = +2
+        - Ironing = +1
+        Return JSON with: scale (number), hasHeavyItems (boolean), hasIroning (boolean).`;
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: systemInstruction,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                scale: { type: Type.NUMBER },
+                hasHeavyItems: { type: Type.BOOLEAN },
+                hasIroning: { type: Type.BOOLEAN }
+              },
+              required: ["scale"]
+            }
+          }
+        });
+
+        const result = JSON.parse(response.text || '{"scale": 2}');
+        workScale = result.scale || 2;
+        hasHeavyItems = result.hasHeavyItems || false;
+        if (result.hasIroning) hasIroning = true;
+      } catch (e) {
+        console.error("AI Estimation failed for Mama Fua", e);
+      }
+
+      const finalLoadSizeCost = extraData?.loadSize ? loadSizeCost : (workScale >= 3 ? 600 : workScale >= 2 ? 400 : 200);
+      materialCost = hasHeavyItems ? 200 : 0;
+      if (hasIroning && ironingCost === 0) ironingCost = 150;
+
+      const subtotal = baseFee + finalLoadSizeCost + materialCost + detergentCost + ironingCost;
+      const total = subtotal * mamaFuaUrgencyMultipliers[urgency];
+
+      return {
+        scale: workScale,
+        breakdown: {
+          baseFee,
+          loadSizeCost: finalLoadSizeCost,
+          materialCost,
+          detergentCost,
+          ironingCost,
+          urgencyMultiplier: mamaFuaUrgencyMultipliers[urgency],
+          total
+        },
+        mamaFuaBreakdown: {
+          loadSizeLabel: extraData?.loadSize || (workScale >= 3 ? 'Large' : workScale >= 2 ? 'Medium' : 'Small'),
+          loadSizeCost: finalLoadSizeCost,
+          materialLabel: hasHeavyItems ? 'Heavy (Blankets/Curtains)' : 'Standard',
+          materialCost,
+          urgencyLabel: urgency,
+          urgencyMultiplier: mamaFuaUrgencyMultipliers[urgency],
+          detergentCost,
+          baseFee,
+          total
+        }
+      } as any;
+    }
+    
+    if (category === 'House Hunting') {
+      baseFee = 500; // Scouting Fee
+      sizeMultiplier = 200; // Higher base for house hunting
+    }
+
+    let workScale = 1;
+    let extractedData = {};
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+      
+      let systemInstruction = `Analyze this errand description and rate its complexity/size on a scale of 1 to 5 (1 = very small/quick, 5 = very large/complex). 
+      Errand Description: "${description}"
+      Return only the number.`;
+
+      if (category === 'House Hunting') {
+        systemInstruction = `Analyze this house hunting request: "${description}".
+        Extract the following entities: PropertyType, TargetLocation, MustHaveAmenities, and Vibe (e.g., Quiet, Busy).
+        Rate the complexity on a scale of 1 to 5. A request for 'near a bypass', 'multiple estates', or many specific amenities should increase the scale.
+        Return JSON with: scale (number), propertyType (string), vibe (string), amenities (array of strings).`;
+      }
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: systemInstruction,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: category === 'House Hunting' ? {
+            type: Type.OBJECT,
+            properties: {
+              scale: { type: Type.NUMBER },
+              propertyType: { type: Type.STRING },
+              vibe: { type: Type.STRING },
+              amenities: { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: ["scale"]
+          } : {
+            type: Type.OBJECT,
+            properties: {
+              scale: { type: Type.NUMBER }
+            },
+            required: ["scale"]
+          }
+        }
+      });
+
+      const result = JSON.parse(response.text || '{"scale": 1}');
+      workScale = Math.max(1, Math.min(5, result.scale || 1));
+      extractedData = result;
+    } catch (e) {
+      console.error("AI Estimation failed, falling back to scale 1", e);
+    }
+
+    let total = (baseFee + (sizeMultiplier * workScale) + locationPremium) * urgencyMultipliers[urgency];
+    let houseViewingFee = 0;
+
+    if (category === 'House Hunting' && extraData?.numberOfHousesViewed) {
+      houseViewingFee = extraData.numberOfHousesViewed * 150;
+      total += houseViewingFee;
+    }
+
+    return {
+      scale: workScale,
+      ...extractedData,
+      breakdown: {
+        baseFee,
+        sizeMultiplier,
+        workScale,
+        locationPremium,
+        urgencyMultiplier: urgencyMultipliers[urgency],
+        houseViewingFee,
+        total
+      }
+    } as any;
+  },
+  uploadFile: async (file: File | string, folder?: string): Promise<string> => {
+    return cloudinaryService.uploadImage(file, folder);
   }
 };
 
@@ -959,12 +1128,23 @@ export const cloudinaryService = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Upload failed');
+        let errorMessage = 'Upload failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // Fallback if response is not JSON
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      const data = await response.json();
-      return data.url;
+      try {
+        const data = await response.json();
+        return data.url;
+      } catch (e) {
+        throw new Error('Invalid response from server');
+      }
     } catch (error) {
       console.error('Cloudinary upload error:', error);
       // Fallback to mock for development if server fails
@@ -987,6 +1167,7 @@ export const geminiService = {
       budget: 500
     };
   },
+
   extractReceiptTotal: async (imageUrl: string): Promise<{ total: number } | null> => {
     await delay(1000);
     return { total: Math.floor(Math.random() * 2000) + 500 };
@@ -995,53 +1176,23 @@ export const geminiService = {
 
 export const emailService = {
   sendEmail: async (to: string, subject: string, text: string, html?: string) => {
-    try {
-      const response = await fetch('/api/email/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ to, subject, text, html }),
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('Email sending failed:', error);
-        return { success: false, error };
-      }
-      
-      const data = await response.json();
-      return { success: true, data };
-    } catch (error) {
-      console.error('Email service error:', error);
-      return { success: false, error };
-    }
+    const response = await fetch('/api/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, subject, text, html })
+    });
+    return response.json();
   }
 };
 
 export const smsService = {
   sendSMS: async (recipient: string, message: string) => {
-    try {
-      const response = await fetch('/api/sms/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ recipient, message }),
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('SMS sending failed:', error);
-        return { success: false, error };
-      }
-      
-      const data = await response.json();
-      return { success: true, data };
-    } catch (error) {
-      console.error('SMS service error:', error);
-      return { success: false, error };
-    }
+    const response = await fetch('/api/sms/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient, message })
+    });
+    return response.json();
   }
 };
 
