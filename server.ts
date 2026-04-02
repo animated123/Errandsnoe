@@ -5,6 +5,7 @@ import fs from "fs";
 import fetch from "node-fetch";
 import multer from "multer";
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import cors from "cors";
 
 async function getCloudinary() {
@@ -245,8 +246,17 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // --- SMTP Transporter Singleton ---
+  // --- Email Service Singleton ---
   let smtpTransporter: nodemailer.Transporter | null = null;
+  let resendClient: Resend | null = null;
+
+  const getResendClient = () => {
+    if (resendClient) return resendClient;
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) return null;
+    resendClient = new Resend(apiKey);
+    return resendClient;
+  };
 
   const getSmtpTransporter = () => {
     if (smtpTransporter) return smtpTransporter;
@@ -275,8 +285,14 @@ async function startServer() {
     return smtpTransporter;
   };
 
-  // Verify SMTP on startup
-  const verifySmtp = async () => {
+  // Verify Email Service on startup
+  const verifyEmailService = async () => {
+    const resend = getResendClient();
+    if (resend) {
+      console.log(`[Email] Resend API configured and ready.`);
+      return;
+    }
+
     const transporter = getSmtpTransporter();
     if (transporter) {
       try {
@@ -286,12 +302,12 @@ async function startServer() {
         console.error(`[Email] SMTP Verification Failed:`, error);
       }
     } else {
-      console.log(`[Email] SMTP not configured. Running in MOCK/DEV mode.`);
+      console.log(`[Email] Email service not configured. Running in MOCK/DEV mode.`);
     }
   };
-  verifySmtp();
+  verifyEmailService();
 
-  // SMTP Email Route
+  // Email Route
   app.post("/api/email/send", async (req, res) => {
     try {
       console.log(`[Email] Received request to /api/email/send`);
@@ -301,44 +317,102 @@ async function startServer() {
       return res.status(400).json({ error: "To, subject, and message are required" });
     }
 
+    const resend = getResendClient();
     const transporter = getSmtpTransporter();
-    const user = process.env.SMTP_USER;
-    const from = process.env.SMTP_FROM || user;
-
-    if (!transporter) {
-      console.log(`[DEV] SMTP not configured. Email to ${to}: ${subject}`);
-      return res.json({ 
-        success: true, 
-        message: "Email sent (MOCK/DEV MODE - SMTP not configured)",
-        isMock: true 
-      });
+    
+    // Resend is very strict about the 'from' address.
+    // If you haven't verified a domain, you MUST use 'onboarding@resend.dev'.
+    // We prioritize SMTP_FROM if it looks like a custom domain email.
+    let from = process.env.SMTP_FROM || "onboarding@resend.dev";
+    
+    // If SMTP_FROM is not set, but SMTP_USER is, we check if SMTP_USER is a public email (gmail, etc)
+    // Resend won't allow sending from public domains without verification.
+    if (!process.env.SMTP_FROM && process.env.SMTP_USER) {
+      const publicDomains = ['gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'];
+      const isPublic = publicDomains.some(domain => process.env.SMTP_USER?.toLowerCase().endsWith(domain));
+      if (isPublic) {
+        from = "onboarding@resend.dev";
+      } else {
+        from = process.env.SMTP_USER;
+      }
     }
 
-    try {
-      console.log(`[Email] Attempting to send to ${to} via ${process.env.SMTP_HOST}...`);
-      const info = await transporter.sendMail({
-        from,
-        to,
-        subject,
-        text,
-        html,
-      });
-
-      console.log(`[Email] Sent successfully to ${to}. MessageId: ${info.messageId}`);
-      res.json({ 
-        success: true, 
-        messageId: info.messageId,
-        details: `Sent via ${process.env.SMTP_HOST}`
-      });
-    } catch (error: any) {
-      console.error("[Email] Error sending email:", error);
-      res.status(500).json({ 
-        error: "Failed to send email", 
-        details: error.message,
-        code: error.code,
-        command: error.command
-      });
+    // Final safety check for Resend
+    if (resend && (!from || !from.includes("@") || from.includes("example.com"))) {
+      from = "onboarding@resend.dev";
     }
+
+    // Try Resend first
+    if (resend) {
+      try {
+        console.log(`[Email] Attempting to send to ${to} via Resend (from: ${from})...`);
+        const { data, error } = await resend.emails.send({
+          from: from,
+          to: to,
+          subject: subject,
+          text: text || "",
+          html: html || "",
+        });
+
+        if (error) {
+          console.error("[Email] Resend API Error:", JSON.stringify(error, null, 2));
+          // If it's a validation error, it's almost certainly the 'from' address
+          if (error.name === 'validation_error') {
+            throw new Error(`Resend Validation Error: The 'from' address (${from}) or 'to' address (${to}) is invalid. If you haven't verified a domain in Resend, you MUST use 'onboarding@resend.dev' as the sender.`);
+          }
+          throw error;
+        }
+
+        console.log(`[Email] Sent successfully via Resend to ${to}. Id: ${data?.id}`);
+        return res.json({ 
+          success: true, 
+          messageId: data?.id,
+          details: `Sent via Resend API`
+        });
+      } catch (error: any) {
+        console.error("[Email] Resend error:", error);
+        // Fallback to SMTP if configured, otherwise error
+        if (!transporter) {
+          return res.status(500).json({ error: "Resend failed and no SMTP fallback", details: error.message });
+        }
+      }
+    }
+
+    // Fallback to SMTP
+    if (transporter) {
+      try {
+        console.log(`[Email] Attempting to send to ${to} via SMTP...`);
+        const info = await transporter.sendMail({
+          from,
+          to,
+          subject,
+          text,
+          html,
+        });
+
+        console.log(`[Email] Sent successfully via SMTP to ${to}. MessageId: ${info.messageId}`);
+        return res.json({ 
+          success: true, 
+          messageId: info.messageId,
+          details: `Sent via ${process.env.SMTP_HOST}`
+        });
+      } catch (error: any) {
+        console.error("[Email] SMTP error:", error);
+        return res.status(500).json({ 
+          error: "Failed to send email via SMTP", 
+          details: error.message
+        });
+      }
+    }
+
+    // Mock mode
+    console.log(`[DEV] No email service configured. Email to ${to}: ${subject}`);
+    return res.json({ 
+      success: true, 
+      message: "Email sent (MOCK/DEV MODE - No email service configured)",
+      isMock: true 
+    });
+
   } catch (error: any) {
     console.error(`[Email] Route error:`, error);
     res.status(500).json({ error: "Email route error", details: error.message });
@@ -351,33 +425,77 @@ async function startServer() {
       const { to } = req.body;
       if (!to) return res.status(400).json({ error: "Recipient email is required" });
 
+      const resend = getResendClient();
       const transporter = getSmtpTransporter();
-      if (!transporter) {
-        return res.status(400).json({ error: "SMTP is not configured. Check your .env variables." });
+      
+      if (!resend && !transporter) {
+        return res.status(400).json({ error: "Email service is not configured. Check your .env variables (RESEND_API_KEY or SMTP_*)." });
       }
 
-      const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+      let from = process.env.SMTP_FROM || "onboarding@resend.dev";
+      if (!process.env.SMTP_FROM && process.env.SMTP_USER) {
+        const publicDomains = ['gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'];
+        const isPublic = publicDomains.some(domain => process.env.SMTP_USER?.toLowerCase().endsWith(domain));
+        from = isPublic ? "onboarding@resend.dev" : process.env.SMTP_USER;
+      }
       
-      await transporter.sendMail({
-        from,
-        to,
-        subject: "Errand Runner App - SMTP Test Email",
-        text: "This is a test email to verify your SMTP configuration. If you received this, your email settings are working correctly!",
-        html: `
+      if (resend && (!from || !from.includes("@"))) {
+        from = "onboarding@resend.dev";
+      }
+
+      const subject = "Errand Runner App - Email Test";
+      const html = `
           <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-            <h2 style="color: #4f46e5;">SMTP Configuration Test</h2>
-            <p>This is a test email to verify your SMTP configuration for the <strong>Errand Runner App</strong>.</p>
+            <h2 style="color: #4f46e5;">Email Configuration Test</h2>
+            <p>This is a test email to verify your email configuration for the <strong>Errand Runner App</strong>.</p>
             <p style="background: #f9fafb; padding: 15px; border-radius: 8px; font-size: 14px;">
               If you are reading this, your email settings are <strong>working correctly!</strong>
             </p>
             <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">
-              Sent at: ${new Date().toLocaleString()}
+              Sent via: ${resend ? 'Resend API' : 'SMTP'} at ${new Date().toLocaleString()}
             </p>
           </div>
-        `
-      });
+        `;
 
-      res.json({ success: true, message: "Test email sent successfully" });
+      if (resend) {
+        try {
+          console.log(`[Admin] Sending test email via Resend (from: ${from}, to: ${to})`);
+          const { data, error } = await resend.emails.send({
+            from,
+            to,
+            subject,
+            html
+          });
+          if (error) {
+            console.error("[Admin] Resend API Error:", JSON.stringify(error, null, 2));
+            if (error.name === 'validation_error') {
+              throw new Error(`Resend Validation Error: The 'from' address (${from}) is likely not verified. If you are on the free tier, you MUST use 'onboarding@resend.dev'.`);
+            }
+            throw error;
+          }
+          return res.json({ success: true, message: "Test email sent successfully via Resend API", details: data?.id });
+        } catch (err: any) {
+          console.error("[Admin] Resend test failed:", err);
+          return res.status(500).json({ 
+            error: "Resend API Error", 
+            details: err.message || "Unknown error",
+            hint: "Check if your 'from' address is verified in Resend. Free accounts MUST use 'onboarding@resend.dev'. Also ensure the recipient email is valid.",
+            raw: err
+          });
+        }
+      }
+
+      if (transporter) {
+        await transporter.sendMail({
+          from,
+          to,
+          subject,
+          html
+        });
+        return res.json({ success: true, message: "Test email sent successfully via SMTP" });
+      }
+
+      res.status(400).json({ error: "No email service available" });
     } catch (error: any) {
       console.error("[Admin] Test email failed:", error);
       res.status(500).json({ error: "Failed to send test email", details: error.message });

@@ -639,20 +639,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           {activeTab === 'sms' && (
             <div className="p-10 space-y-10 max-w-2xl">
               <div className="space-y-6">
-                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">Textsasa SMS Integration</h3>
+                <h3 className="text-base font-black uppercase tracking-widest text-slate-400">Talksasa SMS Integration</h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-micro text-slate-400 ml-1">API Token</label>
                     <input 
                       type="password" 
-                      placeholder="Enter Textsasa API Token"
+                      placeholder="Enter Talksasa API Token"
                       className="w-full p-4 bg-slate-50 rounded-2xl font-bold text-base outline-none" 
                       onChange={(e) => {
                         // This would ideally be saved to a secure backend setting
                         // For now, we'll just show a test interface
                       }}
                     />
-                    <p className="text-[10px] text-slate-400 font-bold italic">Note: Token should be set in environment variables (TEXTSASA_API_TOKEN) for security.</p>
+                    <p className="text-[10px] text-slate-400 font-bold italic">Note: Token should be set in environment variables (TALKSASA_API_TOKEN) for security.</p>
                   </div>
                   
                   <div className="bg-indigo-50 p-6 rounded-[2rem] border border-indigo-100 space-y-4">
@@ -680,7 +680,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           if (res.success) {
                             alert("SMS Sent Successfully!");
                           } else {
-                            alert("Failed to send SMS.");
+                            alert("Failed to send SMS: " + JSON.stringify(res.error));
                           }
                         }}
                         className="w-full py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100"
@@ -751,10 +751,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           try {
                             const { emailService } = await import('../../services/firebaseService');
                             const res = await emailService.sendEmail(to, subject, msg);
-                            if (res.success) {
-                              alert("Email Sent Successfully!");
+                            if (res.data?.isMock) {
+                              alert("Warning: SMTP is NOT configured. This was a MOCK email (check server logs).");
                             } else {
-                              alert("Failed to send email.");
+                              alert("Email Sent Successfully! Message ID: " + (res.data?.messageId || 'N/A'));
                             }
                           } catch (err: any) {
                             const errorMsg = err.message || JSON.stringify(err);

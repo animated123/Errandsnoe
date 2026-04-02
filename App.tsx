@@ -2545,7 +2545,7 @@ const AdminPanelLocal: React.FC<{
                 { label: 'Routes API', value: 'Google Routes', status: googleRoutesApiKey ? 'ACTIVE' : 'MISSING' },
                 { label: 'Media Storage', value: 'Cloudinary CDN', status: 'ACTIVE' },
                 { label: 'AI Services', value: 'Google Gemini', status: 'ACTIVE' },
-                { label: 'Messaging', value: 'Textsasa SMS', status: 'CONFIGURED' },
+                { label: 'Messaging', value: 'Talksasa SMS', status: 'CONFIGURED' },
               ].map((env) => (
                 <div key={env.label} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{env.label}</span>
